@@ -4,9 +4,13 @@ from typing import Any, Callable, Optional
 
 import click
 from fastapi import FastAPI
-from platform_plugins.etl_uvicorn.json_schema import parameters_to_json_schema, type_to_json_schema
 from uvicorn.importer import import_from_string
 from uvicorn.main import LOGGING_CONFIG, logger, main, run
+
+from unstructured_platform_plugins.etl_uvicorn.json_schema import (
+    parameters_to_json_schema,
+    type_to_json_schema,
+)
 
 
 def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:

@@ -33,5 +33,5 @@ setup(
     entry_points={
         "console_scripts": ["etl-uvicorn=unstructured_platform_plugins.etl_uvicorn.main:cmd"],
     },
-    requirements=load_requirements("requirements/cli.in"),
+    install_requires=load_requirements("requirements/cli.in"),
 )
