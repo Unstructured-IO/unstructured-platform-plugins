@@ -1,6 +1,7 @@
 import types
 import typing
 from inspect import Parameter
+from pathlib import Path
 from typing import Optional, Type, Union
 
 # https://json-schema.org/understanding-json-schema/reference/type
@@ -33,6 +34,8 @@ def type_to_json_schema(t: Optional[Union[Type, types.GenericAlias]]) -> dict:
         if origin is list and t.__args__:
             list_type = t.__args__[0]
             resp["items"] = type_to_json_schema(list_type)
+    elif origin is Path:
+        resp = {"type": "string", "is_path": True}
 
     elif origin is typing.Union:
         types = t.__args__

@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import click
@@ -31,6 +32,20 @@ def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:
     raise ValueError(f"type of instance not recognized: {type(instance)}")
 
 
+def get_input_schema(func: Callable) -> dict:
+    sig = inspect.signature(func)
+    parameters = list(sig.parameters.values())
+    return parameters_to_json_schema(parameters)
+
+
+def get_output_schema(func: Callable) -> dict:
+    sig = inspect.signature(func)
+    outputs = (
+        sig.return_annotation if sig.return_annotation is not inspect.Signature.empty else None
+    )
+    return type_to_json_schema(outputs)
+
+
 def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -38,6 +53,16 @@ def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
 
     @fastapi_app.post("/invoke")
     async def run_job(request: dict[str, Any]):
+        input_schema = get_input_schema(func)
+        for k, v in request.items():
+            if schema := input_schema.get(k):  # noqa: SIM102
+                if (
+                    schema.get("type") == "string"
+                    and schema.get("is_path", False)
+                    and isinstance(v, str)
+                ):
+                    request[k] = Path(v)
+
         if inspect.iscoroutinefunction(func):
             return await func(**request)
         else:
@@ -45,14 +70,9 @@ def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
 
     @fastapi_app.get("/schema")
     async def get_schema() -> dict[str, Any]:
-        sig = inspect.signature(func)
-        parameters = list(sig.parameters.values())
-        outputs = (
-            sig.return_annotation if sig.return_annotation is not inspect.Signature.empty else None
-        )
         resp = {
-            "inputs": parameters_to_json_schema(parameters),
-            "outputs": type_to_json_schema(outputs),
+            "inputs": get_input_schema(func),
+            "outputs": get_output_schema(func),
         }
         return resp
 
