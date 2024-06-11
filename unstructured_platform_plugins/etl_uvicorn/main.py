@@ -10,7 +10,7 @@ import click
 from fastapi import FastAPI
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
-from uvicorn.main import LOGGING_CONFIG, main, run
+from uvicorn.main import LOGGING_CONFIG, logger, main, run
 
 from unstructured_platform_plugins.etl_uvicorn.json_schema import (
     parameters_to_json_schema,
@@ -88,7 +88,7 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
         annotation = v.annotation
         if is_dataclass(annotation) and k in raw_inputs and isinstance(raw_inputs[k], dict):
             raw_inputs[k] = annotation(**raw_inputs[k])
-        elif issubclass(annotation, BaseModel):
+        elif inspect.isclass(annotation) and issubclass(annotation, BaseModel):
             raw_inputs[k] = annotation.parse_obj(raw_inputs[k])
     return raw_inputs
 
@@ -117,6 +117,7 @@ def generate_fast_api(
 
     @fastapi_app.post("/invoke")
     async def run_job(request: InputSchema) -> response_type:
+        logger.debug(f"invoking function: {func}")
         input_schema = get_input_schema(func)
         request_dict = request.dict()
         for k, v in request_dict.items():
@@ -128,7 +129,7 @@ def generate_fast_api(
                 ):
                     request_dict[k] = Path(v)
         map_inputs(func=func, raw_inputs=request_dict)
-        print(f"passing inputs: {request_dict}")
+        logger.debug(f"passing inputs to function: {request_dict}")
         if inspect.iscoroutinefunction(func):
             return await func(**request_dict)
         else:
@@ -172,7 +173,7 @@ def get_command() -> click.Command:
         **kwargs,
     ):
         fastapi_app = generate_fast_api(
-            app, method_name, id_str=plugin_id, id_method=plugin_id_method
+            app=app, method_name=method_name, id_str=plugin_id, id_method=plugin_id_method
         )
         # Explicitly map values that are manipulated in the original
         # call to run(), preventing **kwargs reference
