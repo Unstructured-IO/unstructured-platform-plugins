@@ -88,7 +88,7 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
 
 def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
     resp = {"type": "object"}
-    fs: dict[str, FieldInfo] = model.__fields__
+    fs: dict[str, FieldInfo] = model.model_fields
     if not fs:
         return resp
     properties = {}
