@@ -9,8 +9,14 @@ class SampleFunctionResponse(TypedDict):
     response: dict[str, Any]
 
 
-def sample_function(content: dict[str, Any]) -> SampleFunctionResponse:
-    resp = {f"{k}_out": v for k, v in content.items()}
+@dataclass
+class SampleFunctionInput:
+    name: str
+    value: float
+
+
+def sample_function(content: SampleFunctionInput) -> SampleFunctionResponse:
+    resp = {f"{k}_out": v for k, v in content.__dict__.items()}
     return SampleFunctionResponse(response=resp)
 
 

@@ -206,7 +206,7 @@ def response_to_json_schema(return_annotation: Any) -> dict:
     return to_json_schema(val=return_annotation)
 
 
-def schema_to_base_model(schema: dict) -> Type[BaseModel]:
+def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
     for k, v in schema.items():
         if "type" not in v:
@@ -214,6 +214,11 @@ def schema_to_base_model(schema: dict) -> Type[BaseModel]:
         t_string = v["type"]
         if t_string in typed_map_reverse:
             t = typed_map_reverse[t_string]
+            if t is dict and "properties" in v:
+                t = schema_to_base_model(
+                    schema=v["properties"],
+                    name=k,
+                )
             if k not in schema.get("required", []):
                 t = Optional[t]
             input = [t]
@@ -222,4 +227,4 @@ def schema_to_base_model(schema: dict) -> Type[BaseModel]:
             else:
                 input.append(Ellipsis)
             inputs[k] = tuple(input)
-    return create_model("reconstructed_model", **inputs)
+    return create_model(name, **inputs)

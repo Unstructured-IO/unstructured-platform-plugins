@@ -1,10 +1,12 @@
 import asyncio
 import inspect
+from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import click
 from fastapi import FastAPI
+from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 from uvicorn.main import LOGGING_CONFIG, logger, main, run
 
@@ -51,6 +53,17 @@ def get_output_schema(func: Callable) -> dict:
     return response_to_json_schema(get_output_sig(func))
 
 
+def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
+    input_params = {p.name: p for p in inspect.signature(func).parameters.values()}
+    for k, v in input_params.items():
+        annotation = v.annotation
+        if is_dataclass(annotation) and k in raw_inputs and isinstance(raw_inputs[k], dict):
+            raw_inputs[k] = annotation(**raw_inputs[k])
+        elif issubclass(annotation, BaseModel):
+            raw_inputs[k] = annotation.parse_obj(raw_inputs[k])
+    return raw_inputs
+
+
 def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -72,7 +85,8 @@ def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
                     and isinstance(v, str)
                 ):
                     request_dict[k] = Path(v)
-
+        map_inputs(func=func, raw_inputs=request_dict)
+        print(f"passing inputs: {request_dict}")
         if inspect.iscoroutinefunction(func):
             return await func(**request_dict)
         else:
