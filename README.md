@@ -8,6 +8,8 @@ Any plugin must be published in a dedicated docker image with all required depen
 on port 8000 with the required endpoints to interact with the Unstructured Platform product:
 * `/invoke`: A `POST` endpoint which gets all data to run the underlying logic in the request body and expects a json serializable response. 
 * `/schema`: A `GET` endpoint which publishes a json schema formatted response with the schema of the input and output expected by the plugin.
+* `/id`: A `GET` endpoint which publishes a string unique identifier for this instance of the plugin. Will default to a hash of the schema 
+response if one is not set explicitly.
 
 
 ## Utility CLI

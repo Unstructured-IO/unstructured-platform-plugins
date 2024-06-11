@@ -65,3 +65,11 @@ class SampleClass:
 
 
 sample_class = SampleClass()
+
+hash_value = "plugin_id_123"
+
+hash_lambda_fn = lambda: "plugin_id_hash_123"
+
+
+def get_hash() -> str:
+    return "plugin_id_fn_123"
