@@ -10,7 +10,8 @@ from uvicorn.main import LOGGING_CONFIG, logger, main, run
 
 from unstructured_platform_plugins.etl_uvicorn.json_schema import (
     parameters_to_json_schema,
-    type_to_json_schema,
+    response_to_json_schema,
+    schema_to_base_model,
 )
 
 
@@ -38,12 +39,16 @@ def get_input_schema(func: Callable) -> dict:
     return parameters_to_json_schema(parameters)
 
 
-def get_output_schema(func: Callable) -> dict:
+def get_output_sig(func: Callable) -> Optional[Any]:
     sig = inspect.signature(func)
     outputs = (
         sig.return_annotation if sig.return_annotation is not inspect.Signature.empty else None
     )
-    return type_to_json_schema(outputs)
+    return outputs
+
+
+def get_output_schema(func: Callable) -> dict:
+    return response_to_json_schema(get_output_sig(func))
 
 
 def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
@@ -51,22 +56,27 @@ def generate_fast_api(app: str, method_name: Optional[str] = None) -> FastAPI:
     func = get_func(instance, method_name)
     fastapi_app = FastAPI()
 
+    response_type = get_output_sig(func)
+
+    InputSchema = schema_to_base_model(get_input_schema(func))
+
     @fastapi_app.post("/invoke")
-    async def run_job(request: dict[str, Any]):
+    async def run_job(request: InputSchema) -> response_type:
         input_schema = get_input_schema(func)
-        for k, v in request.items():
+        request_dict = request.dict()
+        for k, v in request_dict.items():
             if schema := input_schema.get(k):  # noqa: SIM102
                 if (
                     schema.get("type") == "string"
                     and schema.get("is_path", False)
                     and isinstance(v, str)
                 ):
-                    request[k] = Path(v)
+                    request_dict[k] = Path(v)
 
         if inspect.iscoroutinefunction(func):
-            return await func(**request)
+            return await func(**request_dict)
         else:
-            return func(**request)
+            return func(**request_dict)
 
     @fastapi_app.get("/schema")
     async def get_schema() -> dict[str, Any]:
