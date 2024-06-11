@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Type
 
 from pydantic import BaseModel, create_model
-from pydantic.fields import FieldInfo
+from pydantic.fields import FieldInfo, PydanticUndefined
 
 # https://json-schema.org/understanding-json-schema/reference/type
 types_map: dict[Type, str] = {
@@ -94,7 +94,7 @@ def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
     for name, f in fs.items():
         t = f.annotation
         f_resp = to_json_schema(t)
-        if f.default:
+        if f.default and f.default != PydanticUndefined:
             f_resp["default"] = f.default
         properties[name] = f_resp
         if not is_optional(t):
