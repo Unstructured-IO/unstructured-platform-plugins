@@ -203,7 +203,8 @@ def get_command() -> click.Command:
                 required=False,
                 type=str,
                 default=None,
-                help="Reference to either a value or function to get the plugin id once instantiated",
+                help="Reference to either a value or function to get "
+                "the plugin id once instantiated",
             ),
             click.Option(
                 ["--plugin-id-method"],
