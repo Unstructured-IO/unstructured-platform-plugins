@@ -32,7 +32,7 @@ def test_simple_fn():
 
     def fn(
         a: int,
-        b: float,
+        b: Union[float, int],
         c: Optional[str] = "my_string",
         d: bool = False,
         e: dict[str, Any] = None,
@@ -47,7 +47,7 @@ def test_simple_fn():
         "required": ["a", "b", "d", "e", "f"],
         "properties": {
             "a": {"type": "integer"},
-            "b": {"type": "number"},
+            "b": {"anyOf": [{"type": "number"}, {"type": "integer"}]},
             "c": {"type": "string", "default": "my_string"},
             "d": {"type": "boolean", "default": False},
             "e": {"type": "object", "default": None},
