@@ -56,3 +56,23 @@ All the the above examples caused the CLI to autogenerate the `/id` endpoint wit
 However, you can also provide it a reference to use for the id value. This can be a reference to a concrete 
 value (i.e. `plugin_id="my_plugin_id"`) or a function in the same way that one was passed in to be wrapped above. 
 
+Will populate the response of `/id` with the static value of `hash_value`:
+```shell
+etl-uvicorn test.assets.typed_dict_response:sample_function --plugin-id test.assets.simple_hash_value:hash_value
+```
+
+Can populate it using a lambda:
+```shell
+etl-uvicorn test.assets.typed_dict_response:sample_function --plugin-id test.assets.simple_hash_lambda:hash_lambda_fn
+```
+
+Similar to the function being wrapped, can also use a class:
+```shell
+etl-uvicorn test.assets.typed_dict_response:sample_function --plugin-id test.assets.simple_hash_class:GetHash --plugin-id-method my_hash
+```
+
+Or the instantiated class:
+```shell
+etl-uvicorn test.assets.typed_dict_response:sample_function --plugin-id test.assets.simple_hash_class:get_hash_class_instance --plugin-id-method my_hash
+```
+
