@@ -15,7 +15,8 @@ def test_get_func_simple():
     sig = inspect.signature(func)
     response = sig.return_annotation
     # Check for typed dict response
-    assert dict in inspect.getmro(response) and dict is not inspect.getmro(response)[0]
+    assert dict in inspect.getmro(response)
+    assert dict is not inspect.getmro(response)[0]
 
 
 def test_get_async_func():
@@ -26,7 +27,8 @@ def test_get_async_func():
     sig = inspect.signature(func)
     response = sig.return_annotation
     # Check for typed dict response
-    assert dict in inspect.getmro(response) and dict is not inspect.getmro(response)[0]
+    assert dict in inspect.getmro(response)
+    assert dict is not inspect.getmro(response)[0]
 
 
 def test_get_class_func():
@@ -48,7 +50,7 @@ def test_get_func_dataclass_response():
     assert func.__name__ == "sample_function_with_path"
     sig = inspect.signature(func)
     response = sig.return_annotation
-    # Check for pydantic model response
+    # Check for dataclass response
     assert is_dataclass(response)
 
 

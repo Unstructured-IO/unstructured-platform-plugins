@@ -91,7 +91,7 @@ def test_incorrect_inputs():
 
     sig = inspect.signature(fn)
     with pytest.raises(TypeError):
-        input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+        js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
 
 
 def test_incorrect_union_response():
