@@ -3,7 +3,7 @@ from typing import IO, Any, Optional
 
 import click
 from uvicorn.config import LOGGING_CONFIG, Config, RawConfigParser
-from uvicorn.main import LOGGING_CONFIG, main, run
+from uvicorn.main import main, run
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
 

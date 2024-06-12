@@ -64,7 +64,7 @@ def generate_fast_api(
                 ):
                     request_dict[k] = Path(v)
         map_inputs(func=func, raw_inputs=request_dict)
-        access_logger.debug(f"passing inputs to function: {request_dict}")
+        logger.debug(f"passing inputs to function: {request_dict}")
         if inspect.iscoroutinefunction(func):
             return await func(**request_dict)
         else:
