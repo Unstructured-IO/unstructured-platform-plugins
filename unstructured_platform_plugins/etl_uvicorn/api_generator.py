@@ -10,9 +10,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 
-from unstructured_platform_plugins.etl_uvicorn.json_schema import (
-    schema_to_base_model,
-)
 from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_func,
     get_input_schema,
@@ -20,6 +17,9 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_plugin_id,
     get_schema_dict,
     map_inputs,
+)
+from unstructured_platform_plugins.schema.json_schema import (
+    schema_to_base_model,
 )
 
 logger = logging.getLogger("uvicorn.error")

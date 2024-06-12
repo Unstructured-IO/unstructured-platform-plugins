@@ -5,7 +5,24 @@ from typing import Any, Optional, TypedDict, Union
 import pytest
 from pydantic import BaseModel
 
-import unstructured_platform_plugins.etl_uvicorn.json_schema as js
+import unstructured_platform_plugins.schema.json_schema as js
+from unstructured_platform_plugins.schema.model import is_validate_dict
+
+
+def test_blank_fn():
+    def fn() -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+    expected_schema = {"type": "object"}
+    assert input_schema == expected_schema
+    assert is_validate_dict(input_schema)
+
+    output_schema = js.response_to_json_schema(return_annotation=sig.return_annotation)
+    expected_output_schema = {"type": "null"}
+    assert output_schema == expected_output_schema
+    assert is_validate_dict(output_schema)
 
 
 def test_simple_fn():
@@ -26,15 +43,19 @@ def test_simple_fn():
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
     expected_input_schema = {
-        "a": {"type": "integer"},
-        "b": {"type": "number"},
-        "c": {"type": "string", "default": "my_string"},
-        "d": {"type": "boolean", "default": False},
-        "e": {"type": "object", "default": None},
-        "f": {"type": "array", "items": {"type": "number"}, "default": None},
+        "type": "object",
         "required": ["a", "b", "d", "e", "f"],
+        "properties": {
+            "a": {"type": "integer"},
+            "b": {"type": "number"},
+            "c": {"type": "string", "default": "my_string"},
+            "d": {"type": "boolean", "default": False},
+            "e": {"type": "object", "default": None},
+            "f": {"type": "array", "items": {"type": "number"}, "default": None},
+        },
     }
     assert input_schema == expected_input_schema
+    assert is_validate_dict(input_schema)
 
     output_schema = js.response_to_json_schema(return_annotation=sig.return_annotation)
     expected_output_schema = {
@@ -43,6 +64,7 @@ def test_simple_fn():
         "required": ["x", "y"],
     }
     assert output_schema == expected_output_schema
+    assert is_validate_dict(output_schema)
 
 
 def test_incorrect_dict_response():
@@ -93,14 +115,18 @@ def test_dataclass_schema():
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
     expected_input_schema = {
-        "g": {
-            "type": "object",
-            "properties": {"x": {"type": "integer"}, "y": {"type": "string", "default": None}},
-            "required": ["x"],
-        },
+        "type": "object",
         "required": ["g"],
+        "properties": {
+            "g": {
+                "type": "object",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "string", "default": None}},
+                "required": ["x"],
+            }
+        },
     }
     assert input_schema == expected_input_schema
+    assert is_validate_dict(input_schema)
 
     output_schema = js.response_to_json_schema(return_annotation=sig.return_annotation)
     expected_output_schema = {
@@ -113,6 +139,7 @@ def test_dataclass_schema():
         "required": ["a", "b"],
     }
     assert output_schema == expected_output_schema
+    assert is_validate_dict(output_schema)
 
 
 def test_pydantic_base_model():
@@ -131,14 +158,18 @@ def test_pydantic_base_model():
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
     expected_input_schema = {
-        "g": {
-            "type": "object",
-            "properties": {"x": {"type": "integer"}, "y": {"type": "string", "default": None}},
-            "required": ["x"],
-        },
+        "type": "object",
         "required": ["g"],
+        "properties": {
+            "g": {
+                "type": "object",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "string", "default": None}},
+                "required": ["x"],
+            }
+        },
     }
     assert input_schema == expected_input_schema
+    assert is_validate_dict(input_schema)
 
     output_schema = js.response_to_json_schema(return_annotation=sig.return_annotation)
     expected_output_schema = {
@@ -151,6 +182,7 @@ def test_pydantic_base_model():
         "required": ["a", "b"],
     }
     assert output_schema == expected_output_schema
+    assert is_validate_dict(output_schema)
 
 
 def test_typed_dict():
@@ -169,14 +201,18 @@ def test_typed_dict():
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
     expected_input_schema = {
-        "g": {
-            "type": "object",
-            "properties": {"x": {"type": "integer"}, "y": {"type": "string"}},
-            "required": ["x"],
-        },
+        "type": "object",
         "required": ["g"],
+        "properties": {
+            "g": {
+                "type": "object",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "string"}},
+                "required": ["x"],
+            }
+        },
     }
     assert input_schema == expected_input_schema
+    assert is_validate_dict(input_schema)
 
     output_schema = js.response_to_json_schema(return_annotation=sig.return_annotation)
     expected_output_schema = {
@@ -189,6 +225,7 @@ def test_typed_dict():
         "required": ["a", "b"],
     }
     assert output_schema == expected_output_schema
+    assert is_validate_dict(output_schema)
 
 
 def test_nested_complex_types():
@@ -211,29 +248,36 @@ def test_nested_complex_types():
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
     expected_input_schema = {
-        "q": {
-            "type": "object",
-            "properties": {
-                "g": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "a": {"type": "number"},
-                            "b": {
-                                "type": "object",
-                                "properties": {"x": {"type": "integer"}, "y": {"type": "string"}},
-                                "required": ["x"],
-                                "default": None,
-                            },
-                        },
-                        "required": ["a"],
-                    },
-                },
-                "h": {"type": "boolean", "default": False},
-            },
-            "required": ["g", "h"],
-        },
+        "type": "object",
         "required": ["q"],
+        "properties": {
+            "q": {
+                "type": "object",
+                "properties": {
+                    "g": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "a": {"type": "number"},
+                                "b": {
+                                    "type": "object",
+                                    "properties": {
+                                        "x": {"type": "integer"},
+                                        "y": {"type": "string"},
+                                    },
+                                    "required": ["x"],
+                                    "default": None,
+                                },
+                            },
+                            "required": ["a"],
+                        },
+                    },
+                    "h": {"type": "boolean", "default": False},
+                },
+                "required": ["g", "h"],
+            }
+        },
     }
     assert input_schema == expected_input_schema
+    assert is_validate_dict(input_schema)

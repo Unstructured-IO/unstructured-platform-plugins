@@ -4,7 +4,7 @@ from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 
-from unstructured_platform_plugins.etl_uvicorn.json_schema import (
+from unstructured_platform_plugins.schema.json_schema import (
     parameters_to_json_schema,
     response_to_json_schema,
 )

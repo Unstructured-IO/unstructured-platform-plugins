@@ -173,15 +173,18 @@ def run_input_checks(parameters: list[Parameter]):
 
 def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
     run_input_checks(parameters=parameters)
-    resp = {}
+    resp = {"type": "object"}
+    properties = {}
     required_fields = []
     for p in parameters:
         schema = to_json_schema(val=p)
         if not is_optional(p):
             required_fields.append(p.name)
-        resp[p.name] = schema
+        properties[p.name] = schema
     if required_fields:
         resp["required"] = required_fields
+    if properties:
+        resp["properties"] = properties
     return resp
 
 
@@ -196,6 +199,8 @@ def run_output_checks(return_annotation: Any):
     if is_dataclass(return_annotation):
         return
     if inspect.isclass(return_annotation) and issubclass(return_annotation, BaseModel):
+        return
+    if return_annotation is None:
         return
     if return_annotation is type(None):
         return

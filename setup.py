@@ -31,7 +31,11 @@ setup(
     url="https://github.com/Unstructured-IO/unstructured-platform-plugins",  # noqa: 501
     packages=find_packages(),
     entry_points={
-        "console_scripts": ["etl-uvicorn=unstructured_platform_plugins.etl_uvicorn.main:cmd"],
+        "console_scripts": [
+            "etl-uvicorn=unstructured_platform_plugins.etl_uvicorn.main:cmd",
+            "etl-validate=unstructured_platform_plugins.validate_api:validate_api",
+        ],
     },
-    install_requires=load_requirements("requirements/cli.in"),
+    install_requires=load_requirements("requirements/cli.in")
+    + load_requirements("requirements/validate.in"),
 )
