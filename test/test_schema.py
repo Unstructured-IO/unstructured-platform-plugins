@@ -85,6 +85,15 @@ def test_incorrect_int_response():
         js.response_to_json_schema(return_annotation=sig.return_annotation)
 
 
+def test_incorrect_inputs():
+    def fn(*args, **kwargs) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    with pytest.raises(TypeError):
+        input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+
+
 def test_incorrect_union_response():
     class CorrectResponse(TypedDict):
         x: int
