@@ -39,7 +39,8 @@ def check_schema_response(api_session: ApiSession):
         resp.raise_for_status()
     except Exception as e:
         raise ValidationError(
-            f"failed to validate response from schema endpoint {api_session.get_url(url="/schema")}: {e}"
+            f"failed to validate response from schema "
+            f"endpoint {api_session.get_url(url="/schema")}: {e}"
         ) from e
     contents = resp.json()
     if not is_validate_dict(contents):
