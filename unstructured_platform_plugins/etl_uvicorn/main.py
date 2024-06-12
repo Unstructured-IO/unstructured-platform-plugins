@@ -1,9 +1,24 @@
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import IO, Any, Optional
 
 import click
+from uvicorn.config import LOGGING_CONFIG, Config, RawConfigParser
 from uvicorn.main import LOGGING_CONFIG, main, run
 
-from unstructured_platform_plugins.etl_uvicorn.fastapi import generate_fast_api
+from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
+
+
+@dataclass
+class CustomConfig:
+    log_config: dict[str, Any] | str | RawConfigParser | IO[Any] | None = field(
+        default_factory=lambda: LOGGING_CONFIG
+    )
+    log_level: str | int | None = None
+    use_colors: bool | None = None
+    access_log: bool = True
+
+
+CustomConfig.configure_logging = Config.configure_logging
 
 
 def get_command() -> click.Command:
@@ -20,6 +35,14 @@ def get_command() -> click.Command:
         plugin_id_method: Optional[str] = None,
         **kwargs,
     ):
+        # Make sure logging is configured before the call to run() so any setup has the same format
+        config = CustomConfig(
+            log_config=LOGGING_CONFIG if log_config is None else log_config,
+            log_level=kwargs["log_level"],
+            use_colors=kwargs["use_colors"],
+            access_log=kwargs["access_log"],
+        )
+        config.configure_logging()
         fastapi_app = generate_fast_api(
             app=app, method_name=method_name, id_str=plugin_id, id_method=plugin_id_method
         )

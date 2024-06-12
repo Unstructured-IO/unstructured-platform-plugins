@@ -2,13 +2,13 @@ import asyncio
 import hashlib
 import inspect
 import json
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
-from uvicorn.main import logger
 
 from unstructured_platform_plugins.etl_uvicorn.json_schema import (
     schema_to_base_model,
@@ -21,6 +21,8 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def generate_fast_api(
@@ -38,12 +40,15 @@ def generate_fast_api(
         plugin_id = hashlib.sha256(
             json.dumps(get_schema_dict(func), sort_keys=True).encode()
         ).hexdigest()[:32]
+    logger.debug(f"set static id response to: {plugin_id}")
 
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
 
     InputSchema = schema_to_base_model(get_input_schema(func))
+
+    logging.getLogger("etl_uvicorn.fastapi")
 
     @fastapi_app.post("/invoke")
     async def run_job(request: InputSchema) -> response_type:
@@ -59,7 +64,7 @@ def generate_fast_api(
                 ):
                     request_dict[k] = Path(v)
         map_inputs(func=func, raw_inputs=request_dict)
-        logger.debug(f"passing inputs to function: {request_dict}")
+        access_logger.debug(f"passing inputs to function: {request_dict}")
         if inspect.iscoroutinefunction(func):
             return await func(**request_dict)
         else:

@@ -19,29 +19,40 @@ plugin logic. This cli extends the existing `uvicorn` cli which takes in a point
 instead takes in a pointer to a python function/class which gets wrapped with a FastApi application. 
 
 ## Example usage
-Wrapping a basic function
+For all following commands, make sure you have the local repo in your `PYTHONPATH`:
 ```shell
-etl-uvicorn unstructured_platform_plugins.etl_uvicorn.example:sample_function
+export PYTHONPATH=.
 ```
 
-Wrapping a basic async function
+Wrapping a basic function with a typed dict response
 ```shell
-etl-uvicorn unstructured_platform_plugins.etl_uvicorn.example:async_sample_function
+etl-uvicorn test.assets.typed_dict_response:sample_function
+```
+
+Wrapping a basic async function with a typed dict response
+```shell
+etl-uvicorn test.assets.async_typed_dict_response:async_sample_function
 ```
 
 Wrapping a class. For this to work, the class must be self instantiating. When passing a class in, a method needs to 
-be passed in as well, otherwise `__call__` is used.
+be passed in as well, otherwise `__call__` is used. The following example returns a pydantic BaseModel
 ```shell
-etl-uvicorn unstructured_platform_plugins.etl_uvicorn.example:SampleClass --method sample_method
+etl-uvicorn test.assets.pydantic_response_class_method:SampleClass --method-name sample_method
 ```
 
 Wrapping an instance of a class.
 ```shell
-etl-uvicorn unstructured_platform_plugins.etl_uvicorn.example:sample_class --method sample_method
+etl-uvicorn test.assets.pydantic_response_class_method:sample_class --method-name sample_method
 ```
 
 The CLI does some validation on the wrapped function, which must have explicit inputs and outputs, meaning *args 
 and **kwargs are not supported. These will cause the cli to fail fast.
 ```shell
-etl-uvicorn unstructured_platform_plugins.etl_uvicorn.example:sample_function
+etl-uvicorn test.assets.improper_function:sample_improper_function
 ```
+
+### /id requirements
+All the the above examples caused the CLI to autogenerate the `/id` endpoint with a hash of the generated schema. 
+However, you can also provide it a reference to use for the id value. This can be a reference to a concrete 
+value (i.e. `plugin_id="my_plugin_id"`) or a function in the same way that one was passed in to be wrapped above. 
+
