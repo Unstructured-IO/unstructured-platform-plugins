@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Type
 
 from pydantic import BaseModel, create_model
-from pydantic.fields import FieldInfo
+from pydantic.fields import FieldInfo, PydanticUndefined
 
 # https://json-schema.org/understanding-json-schema/reference/type
 types_map: dict[Type, str] = {
@@ -23,6 +23,8 @@ typed_map_reverse: dict[str, Type] = {v: k for k, v in types_map.items()}
 
 
 def is_optional(val: Any) -> bool:
+    if annotation := getattr(val, "annotation", None):
+        return is_optional(annotation)
     if origin := getattr(val, "__origin__", None):  # noqa: SIM102
         if origin is typing.Union:
             types = val.__args__
@@ -86,7 +88,7 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
 
 def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
     resp = {"type": "object"}
-    fs: dict[str, FieldInfo] = model.__fields__
+    fs: dict[str, FieldInfo] = model.model_fields
     if not fs:
         return resp
     properties = {}
@@ -94,7 +96,7 @@ def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
     for name, f in fs.items():
         t = f.annotation
         f_resp = to_json_schema(t)
-        if f.default:
+        if f.default != PydanticUndefined:
             f_resp["default"] = f.default
         properties[name] = f_resp
         if not is_optional(t):
@@ -171,16 +173,18 @@ def run_input_checks(parameters: list[Parameter]):
 
 def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
     run_input_checks(parameters=parameters)
-    resp = {}
+    resp = {"type": "object"}
+    properties = {}
     required_fields = []
     for p in parameters:
         schema = to_json_schema(val=p)
-        required = not is_optional(p)
-        if required:
+        if not is_optional(p):
             required_fields.append(p.name)
-        resp[p.name] = schema
+        properties[p.name] = schema
     if required_fields:
         resp["required"] = required_fields
+    if properties:
+        resp["properties"] = properties
     return resp
 
 
@@ -194,7 +198,9 @@ def run_output_checks(return_annotation: Any):
         return
     if is_dataclass(return_annotation):
         return
-    if issubclass(return_annotation, BaseModel):
+    if inspect.isclass(return_annotation) and issubclass(return_annotation, BaseModel):
+        return
+    if return_annotation is None:
         return
     if return_annotation is type(None):
         return

@@ -17,11 +17,11 @@ pip-compile:
 	./scripts/pip-compile.sh
 
 .PHONY: install
-install: install-base install-lint install-test
+install: install-cli install-lint install-test
 
-.PHONY: install-base
-install-base:
-	pip install -r requirements/base.txt
+.PHONY: install-cli
+install-cli:
+	pip install -r requirements/cli.txt
 
 .PHONY: install-lint
 install-lint:
