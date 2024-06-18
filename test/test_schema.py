@@ -5,6 +5,7 @@ from typing import Any, Optional, TypedDict, Union
 import pytest
 from pydantic import BaseModel
 
+from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.schema.model import is_validate_dict
 
@@ -290,3 +291,21 @@ def test_nested_complex_types():
     }
     assert input_schema == expected_input_schema
     assert is_validate_dict(input_schema)
+
+
+def test_schema_to_base_model():
+    def examined_fn(first: list[dict]) -> dict:
+        pass
+
+    class ExpectedModel(BaseModel):
+        first: list[dict]
+
+    example_data = [{"x": 1, "y": 2}, {"a": 1, "b": 2}]
+
+    tested_model = js.schema_to_base_model(get_input_schema(examined_fn))
+
+    instance_correct = ExpectedModel(first=example_data)
+    assert instance_correct.first
+
+    instance_tested = tested_model(first=example_data)
+    assert instance_tested.first
