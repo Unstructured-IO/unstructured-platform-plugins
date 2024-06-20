@@ -4,7 +4,7 @@ import typing
 from dataclasses import MISSING, fields, is_dataclass
 from inspect import Parameter
 from pathlib import Path
-from typing import Any, Optional, Type
+from typing import Any, Optional, Type, Union
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
@@ -212,25 +212,35 @@ def response_to_json_schema(return_annotation: Any) -> dict:
     return to_json_schema(val=return_annotation)
 
 
+def schema_to_base_model_type(t_string, name: str, type_info: dict) -> Type[BaseModel]:
+    t = typed_map_reverse[t_string]
+    if t is dict and "properties" in type_info:
+        t = schema_to_base_model(
+            schema=type_info["properties"],
+            name=name,
+        )
+    return t
+
+
 def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
-    for k, v in schema.items():
-        if "type" not in v:
-            continue
-        t_string = v["type"]
-        if t_string in typed_map_reverse:
-            t = typed_map_reverse[t_string]
-            if t is dict and "properties" in v:
-                t = schema_to_base_model(
-                    schema=v["properties"],
-                    name=k,
-                )
-            if k not in schema.get("required", []):
-                t = Optional[t]
-            input = [t]
-            if "default" in v:
-                input.append(v["default"])
-            else:
-                input.append(Ellipsis)
-            inputs[k] = tuple(input)
+    properties = schema.get("properties", {})
+    for k, v in properties.items():
+        if any_of := v.get("anyOf"):
+            type_info = [
+                schema_to_base_model_type(a["type"], name=f"{k}_{i}", type_info=a)
+                for i, a in enumerate(any_of)
+            ]
+            t = Union[*type_info]
+        else:
+            t_string = v["type"]
+            t = schema_to_base_model_type(t_string=t_string, name=k, type_info=v)
+        if k not in schema.get("required", []):
+            t = Optional[t]
+        resp = [t]
+        if "default" in v:
+            resp.append(v["default"])
+        else:
+            resp.append(Ellipsis)
+        inputs[k] = tuple(resp)
     return create_model(name, **inputs)

@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 import unstructured_platform_plugins.schema.json_schema as js
+from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_validate_dict
 
 
@@ -290,3 +291,29 @@ def test_nested_complex_types():
     }
     assert input_schema == expected_input_schema
     assert is_validate_dict(input_schema)
+
+
+def test_schema_to_base_model():
+    def fn(
+        a: int,
+        b: Union[float, int] = 4,
+        c: Optional[str] = "my_string",
+        d: bool = False,
+        e: dict[str, Any] = None,
+        f: list[float] = None,
+    ) -> None:
+        pass
+
+    class ExpectedInputModel(BaseModel):
+        a: int
+        b: Union[float, int] = 4
+        c: Optional[str] = "my_string"
+        d: bool = False
+        e: dict = None
+        f: list = None
+
+    input_model = js.schema_to_base_model(get_input_schema(fn))
+    input_model_schema = input_model.model_json_schema()
+    expected_model_schema = ExpectedInputModel.model_json_schema()
+    expected_model_schema["title"] = "reconstructed_model"
+    assert input_model_schema == expected_model_schema
