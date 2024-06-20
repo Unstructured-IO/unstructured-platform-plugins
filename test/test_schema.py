@@ -1,9 +1,9 @@
 import inspect
 from dataclasses import dataclass
-from typing import Any, Optional, TypedDict, Union
+from typing import Any, Callable, Optional, TypedDict, Union
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
 from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 import unstructured_platform_plugins.schema.json_schema as js
@@ -294,11 +294,11 @@ def test_nested_complex_types():
 
 
 def test_schema_to_base_model():
-    def examined_fn(first: list[dict]) -> dict:
-        pass
-
     class ExpectedModel(BaseModel):
         first: list[dict]
+
+    def examined_fn(input: ExpectedModel) -> dict:
+        pass
 
     example_data = [{"x": 1, "y": 2}, {"a": 1, "b": 2}]
 
@@ -308,4 +308,64 @@ def test_schema_to_base_model():
     assert instance_correct.first
 
     instance_tested = tested_model(first=example_data)
+    print(instance_tested.model_dump())
     assert instance_tested.first
+
+
+def test_schema_introspection():
+    def func_with_python_args(first: dict[int, str], second: list[dict], third: int = 3):
+        pass
+
+    class MyInputModel(BaseModel):
+        first: dict[int, str]
+        second: list[dict]
+        third: int = 3
+
+    def func_with_input_model(input: MyInputModel):
+        pass
+
+    expected_acceptable_input = {
+        "first": {1: "a", 2: "b"},
+        "second": [{"x": 1}, {"y": 2}],
+        "third": 123,
+    }
+
+    def infer_model_from_function(func: Callable[..., Any]):
+        params = {}
+        signature = inspect.signature(func)
+        print(f"Signature is {signature}")
+        for parameter in signature.parameters.values():
+            name = parameter.name
+            annotation = parameter.annotation
+            if parameter.default is inspect._empty:
+                default = Ellipsis
+            else:
+                default = parameter.default
+            params[name] = (annotation, default)
+
+        print(f"Create model with params: '{params}'")
+        infered_model = create_model("infered_model", **params)
+        return infered_model
+
+    print("Test model creation")
+    for tested_func in (func_with_python_args, func_with_input_model):
+        print(f"Examining {tested_func}")
+        infered_model = infer_model_from_function(tested_func)
+        for name, field in infered_model.model_fields.items():
+            print(f"Field '{name}' -> '{field}'")
+        print()
+
+    print("Test model instance creation")
+    func_with_python_args_model = infer_model_from_function(func_with_python_args)
+    func_with_input_model_model = infer_model_from_function(func_with_input_model)
+
+    print("Instance of model for func_with_python_args")
+    model = func_with_python_args_model(**expected_acceptable_input)
+    print(model)
+    func_with_python_args(**model.model_dump())
+    print()
+
+    print("Instance of model for func_with_input_model")
+    model = func_with_input_model_model(**{"input": expected_acceptable_input})
+    print(model)
+    func_with_input_model(**model.model_dump())
