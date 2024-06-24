@@ -296,8 +296,8 @@ def test_nested_complex_types():
 def test_schema_to_base_model():
     def fn(
         a: int,
-        b: Union[float, int] = 4,
-        c: Optional[str] = "my_string",
+        b: float | int = 4,
+        c: str | None = "my_string",
         d: bool = False,
         e: dict[str, Any] = None,
         f: list[float] = None,
