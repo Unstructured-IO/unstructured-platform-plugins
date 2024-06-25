@@ -1,10 +1,9 @@
 import inspect
-import types
-import typing
 from dataclasses import MISSING, fields, is_dataclass
 from inspect import Parameter
 from pathlib import Path
-from typing import Any, Optional, Type
+from types import GenericAlias, NoneType, UnionType
+from typing import Any, Optional, Type, Union
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
@@ -23,12 +22,14 @@ typed_map_reverse: dict[str, Type] = {v: k for k, v in types_map.items()}
 
 
 def is_optional(val: Any) -> bool:
+    if isinstance(val, UnionType) and NoneType in val.__args__:
+        return True
     if annotation := getattr(val, "annotation", None):
         return is_optional(annotation)
     if origin := getattr(val, "__origin__", None):  # noqa: SIM102
-        if origin is typing.Union:
+        if origin is Union:
             types = val.__args__
-            if type(None) in types:
+            if NoneType in types:
                 return True
     return False
 
@@ -53,17 +54,27 @@ def path_to_json_schema(path: Path) -> dict:
     return {"type": "string", "is_path": True}
 
 
-def generic_alias_to_json_schema(t: types.GenericAlias) -> dict:
+def generic_alias_to_json_schema(t: GenericAlias) -> dict:
     origin = t.__origin__
-    if origin is typing.Union:
+    if origin is Union:
         types = t.__args__
-        if type(None) in types:
-            types = [t for t in types if t is not type(None)]
+        if NoneType in types:
+            types = [t for t in types if t is not NoneType]
         if len(types) == 1:
             return to_json_schema(types[0])
         else:
             return {"anyOf": [to_json_schema(t) for t in types]}
     return type_to_json_schema(t=origin, args=t.__args__)
+
+
+def union_type_to_json_schema(t: UnionType) -> dict:
+    types = t.__args__
+    if NoneType in types:
+        types = [t for t in types if t is not NoneType]
+    if len(types) == 1:
+        return to_json_schema(types[0])
+    else:
+        return {"anyOf": [to_json_schema(t) for t in types]}
 
 
 def dataclass_to_json_schema(class_or_instance) -> dict:
@@ -136,7 +147,9 @@ def to_json_schema(val: Any) -> dict:
         return {"type": "null"}
     if isinstance(val, Parameter):
         return parameter_to_json_schema(parameter=val)
-    if is_generic_alias(val):
+    if isinstance(val, UnionType):
+        return union_type_to_json_schema(t=val)
+    if is_generic_alias(val=val):
         return generic_alias_to_json_schema(t=val)
     if val is Type:
         return type_to_json_schema(t=val)
@@ -146,7 +159,7 @@ def to_json_schema(val: Any) -> dict:
         return path_to_json_schema(val)
     if val in types_map:
         return type_to_json_schema(t=val)
-    if issubclass(val, BaseModel):
+    if inspect.isclass(val) and issubclass(val, BaseModel):
         return pydantic_base_model_to_json_schema(model=val)
     if is_typed_dict(val):
         return typed_dict_to_json_schem(val)
@@ -190,7 +203,7 @@ def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
 
 def run_output_checks(return_annotation: Any):
     if is_generic_alias(val=return_annotation):  # noqa: SIM102
-        if return_annotation.__origin__ in [typing.Union, list]:
+        if return_annotation.__origin__ in [Union, list]:
             for arg in return_annotation.__args__:
                 run_output_checks(arg)
             return
@@ -202,7 +215,7 @@ def run_output_checks(return_annotation: Any):
         return
     if return_annotation is None:
         return
-    if return_annotation is type(None):
+    if return_annotation is NoneType:
         return
     raise ValueError(f"Unsupported response type: {return_annotation}")
 
@@ -212,25 +225,37 @@ def response_to_json_schema(return_annotation: Any) -> dict:
     return to_json_schema(val=return_annotation)
 
 
+def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Type[BaseModel]:
+    t = typed_map_reverse[json_type_name]
+    if t is dict and "properties" in type_info:
+        t = schema_to_base_model(
+            schema=type_info["properties"],
+            name=name,
+        )
+    return t
+
+
 def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
-    for k, v in schema.items():
-        if "type" not in v:
-            continue
-        t_string = v["type"]
-        if t_string in typed_map_reverse:
-            t = typed_map_reverse[t_string]
-            if t is dict and "properties" in v:
-                t = schema_to_base_model(
-                    schema=v["properties"],
-                    name=k,
+    properties = schema.get("properties", {})
+    for k, v in properties.items():
+        if any_of := v.get("anyOf"):
+            type_info = [
+                schema_to_base_model_type(
+                    type_info["type"], name=f"{k}_{index}", type_info=type_info
                 )
-            if k not in schema.get("required", []):
-                t = Optional[t]
-            input = [t]
-            if "default" in v:
-                input.append(v["default"])
-            else:
-                input.append(Ellipsis)
-            inputs[k] = tuple(input)
+                for index, type_info in enumerate(any_of)
+            ]
+            t = Union[*type_info]
+        else:
+            json_type_name = v["type"]
+            t = schema_to_base_model_type(json_type_name=json_type_name, name=k, type_info=v)
+        if k not in schema.get("required", []):
+            t = Optional[t]
+        resp = [t]
+        if "default" in v:
+            resp.append(v["default"])
+        else:
+            resp.append(Ellipsis)
+        inputs[k] = tuple(resp)
     return create_model(name, **inputs)

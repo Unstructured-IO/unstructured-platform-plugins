@@ -47,6 +47,7 @@ def generate_fast_api(
     response_type = get_output_sig(func)
 
     InputSchema = schema_to_base_model(get_input_schema(func))
+    logger.debug(f"input model set to: {InputSchema.model_fields}")
 
     logging.getLogger("etl_uvicorn.fastapi")
 
