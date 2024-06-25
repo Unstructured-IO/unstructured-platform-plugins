@@ -58,8 +58,6 @@ def generic_alias_to_json_schema(t: GenericAlias) -> dict:
     origin = t.__origin__
     if origin is Union:
         types = t.__args__
-        if NoneType in types:
-            types = [t for t in types if t is not NoneType]
         if len(types) == 1:
             return to_json_schema(types[0])
         else:
@@ -89,9 +87,9 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
         f_resp = to_json_schema(t)
         if f.default is not MISSING:
             f_resp["default"] = f.default
-        properties[f.name] = f_resp
-        if not is_optional(t):
+        else:
             required.append(f.name)
+        properties[f.name] = f_resp
     resp["properties"] = properties
     resp["required"] = required
     return resp
@@ -110,8 +108,6 @@ def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
         if f.default != PydanticUndefined:
             f_resp["default"] = f.default
         properties[name] = f_resp
-        if not is_optional(t):
-            required.append(name)
     resp["properties"] = properties
     resp["required"] = required
     return resp
@@ -127,8 +123,6 @@ def typed_dict_to_json_schem(typed_dict_class) -> dict:
     for name, t in fs.items():
         f_resp = to_json_schema(t)
         properties[name] = f_resp
-        if not is_optional(t):
-            required.append(name)
     resp["properties"] = properties
     resp["required"] = required
     return resp
@@ -143,7 +137,7 @@ def parameter_to_json_schema(parameter: Parameter) -> dict:
 
 
 def to_json_schema(val: Any) -> dict:
-    if val is None:
+    if val in [None, NoneType]:
         return {"type": "null"}
     if isinstance(val, Parameter):
         return parameter_to_json_schema(parameter=val)
@@ -191,9 +185,9 @@ def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
     required_fields = []
     for p in parameters:
         schema = to_json_schema(val=p)
-        if not is_optional(p):
-            required_fields.append(p.name)
         properties[p.name] = schema
+        if p.default == Parameter.empty:
+            required_fields.append(p.name)
     if required_fields:
         resp["required"] = required_fields
     if properties:
