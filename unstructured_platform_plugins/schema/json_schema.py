@@ -21,19 +21,6 @@ types_map: dict[Type, str] = {
 typed_map_reverse: dict[str, Type] = {v: k for k, v in types_map.items()}
 
 
-def is_optional(val: Any) -> bool:
-    if isinstance(val, UnionType) and NoneType in val.__args__:
-        return True
-    if annotation := getattr(val, "annotation", None):
-        return is_optional(annotation)
-    if origin := getattr(val, "__origin__", None):  # noqa: SIM102
-        if origin is Union:
-            types = val.__args__
-            if NoneType in types:
-                return True
-    return False
-
-
 def is_generic_alias(val: Any) -> bool:
     return hasattr(val, "__origin__") and hasattr(val, "__args__")
 
@@ -47,6 +34,13 @@ def type_to_json_schema(t: Type, args: Optional[tuple[Any, ...]] = None) -> dict
     if t is list and args:
         list_type = args[0]
         resp["items"] = to_json_schema(list_type)
+    if t is dict and args:
+        key = args[0]
+        value = args[1]
+        resp["items"] = {
+            "key": to_json_schema(key),
+            "value": to_json_schema(value),
+        }
     return resp
 
 
@@ -67,8 +61,6 @@ def generic_alias_to_json_schema(t: GenericAlias) -> dict:
 
 def union_type_to_json_schema(t: UnionType) -> dict:
     types = t.__args__
-    if NoneType in types:
-        types = [t for t in types if t is not NoneType]
     if len(types) == 1:
         return to_json_schema(types[0])
     else:
@@ -107,6 +99,8 @@ def pydantic_base_model_to_json_schema(model: Type[BaseModel]) -> dict:
         f_resp = to_json_schema(t)
         if f.default != PydanticUndefined:
             f_resp["default"] = f.default
+        else:
+            required.append(name)
         properties[name] = f_resp
     resp["properties"] = properties
     resp["required"] = required
@@ -123,6 +117,7 @@ def typed_dict_to_json_schem(typed_dict_class) -> dict:
     for name, t in fs.items():
         f_resp = to_json_schema(t)
         properties[name] = f_resp
+        required.append(name)
     resp["properties"] = properties
     resp["required"] = required
     return resp
@@ -139,6 +134,8 @@ def parameter_to_json_schema(parameter: Parameter) -> dict:
 def to_json_schema(val: Any) -> dict:
     if val in [None, NoneType]:
         return {"type": "null"}
+    if val is Any:
+        return {}
     if isinstance(val, Parameter):
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
@@ -226,25 +223,62 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
             schema=type_info["properties"],
             name=name,
         )
+    if t is dict and "items" in type_info and isinstance(type_info["items"], dict):
+        items = type_info["items"]
+        if "key" in items and "value" in items:
+            key_info = items["key"]
+            key_type_name = key_info["type"]
+            key_subtype = schema_to_base_model_type(
+                json_type_name=key_type_name, name=f"{name}_key", type_info=key_info
+            )
+            value_info = items["value"]
+            if not value_info:
+                value_subtype = Any
+            else:
+                value_type_name = items["value"]["type"]
+                value_subtype = schema_to_base_model_type(
+                    json_type_name=value_type_name, name=f"{name}_value", type_info=value_info
+                )
+            t = dict[key_subtype, value_subtype]
+    if t is list and "items" in type_info and isinstance(type_info["items"], dict):
+        items = type_info["items"]
+        item_type_name = items["type"]
+        subtype = schema_to_base_model_type(
+            json_type_name=item_type_name, name=f"{name}_type", type_info=items
+        )
+        t = list[subtype]
     return t
 
 
 def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
     properties = schema.get("properties", {})
+
     for k, v in properties.items():
-        if any_of := v.get("anyOf"):
-            type_info = [
-                schema_to_base_model_type(
-                    type_info["type"], name=f"{k}_{index}", type_info=type_info
+        optional = False
+        if "anyOf" in v:
+            any_of_entries = v["anyOf"]
+            if "null" in [entry["type"] for entry in any_of_entries]:
+                optional = True
+                any_of_entries = [entry for entry in any_of_entries if entry["type"] != "null"]
+            if len(any_of_entries) > 1:
+                type_info = [
+                    schema_to_base_model_type(
+                        type_info["type"], name=f"{k}_{index}", type_info=type_info
+                    )
+                    for index, type_info in enumerate(any_of_entries)
+                ]
+                t = Union[*type_info]
+            else:
+                entry_info = any_of_entries[0]
+                json_type_name = entry_info["type"]
+                t = schema_to_base_model_type(
+                    json_type_name=json_type_name, name=k, type_info=entry_info
                 )
-                for index, type_info in enumerate(any_of)
-            ]
-            t = Union[*type_info]
         else:
             json_type_name = v["type"]
             t = schema_to_base_model_type(json_type_name=json_type_name, name=k, type_info=v)
-        if k not in schema.get("required", []):
+        if optional:
             t = Optional[t]
         resp = [t]
         if "default" in v:

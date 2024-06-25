@@ -4,7 +4,7 @@ import click
 from pydantic import HttpUrl
 from requests import Session
 
-from unstructured_platform_plugins.schema.model import is_validate_dict
+from unstructured_platform_plugins.schema.model import is_valid_input_dict
 
 
 class ApiSession(Session):
@@ -43,7 +43,7 @@ def check_schema_response(api_session: ApiSession):
             f"endpoint {api_session.get_url(url="/schema")}: {e}"
         ) from e
     contents = resp.json()
-    if not is_validate_dict(contents):
+    if not is_valid_input_dict(contents):
         raise ValidationError("schema response don't conform to expected format")
 
 
