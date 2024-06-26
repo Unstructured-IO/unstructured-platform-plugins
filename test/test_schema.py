@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 import unstructured_platform_plugins.schema.json_schema as js
-from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
+from unstructured_platform_plugins.cli.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_validate_dict
 
 
