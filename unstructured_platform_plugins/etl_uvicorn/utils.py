@@ -1,6 +1,7 @@
 import inspect
 from dataclasses import is_dataclass
-from typing import Any, Callable, Optional
+from types import NoneType
+from typing import Any, Callable, Optional, get_type_hints
 
 from pydantic import BaseModel
 
@@ -8,6 +9,7 @@ from unstructured_platform_plugins.schema.json_schema import (
     parameters_to_json_schema,
     response_to_json_schema,
 )
+from unstructured_platform_plugins.schema.utils import get_types_parameters
 
 
 def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:
@@ -49,16 +51,15 @@ def get_plugin_id(instance: Any, method_name: Optional[str] = None) -> str:
 
 
 def get_input_schema(func: Callable) -> dict:
-    sig = inspect.signature(func)
-    parameters = list(sig.parameters.values())
+    parameters = get_types_parameters(func)
     return parameters_to_json_schema(parameters)
 
 
 def get_output_sig(func: Callable) -> Optional[Any]:
-    sig = inspect.signature(func)
-    outputs = (
-        sig.return_annotation if sig.return_annotation is not inspect.Signature.empty else None
-    )
+    inspect.signature(func)
+    type_hints = get_type_hints(func)
+    return_typing = type_hints["return"]
+    outputs = return_typing if return_typing is not NoneType else None
     return outputs
 
 

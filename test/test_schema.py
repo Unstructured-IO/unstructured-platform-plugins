@@ -1,6 +1,7 @@
 import inspect
 from dataclasses import dataclass
-from typing import Any, Optional, TypedDict, Union
+from enum import Enum
+from typing import Any, Optional, TypedDict, Union, get_type_hints
 
 import pytest
 from pydantic import BaseModel
@@ -8,6 +9,62 @@ from pydantic import BaseModel
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_valid_input_dict, is_valid_response_dict
+from unstructured_platform_plugins.schema.utils import get_types_parameters
+
+
+def test_string_enum_fn():
+    class StringEnum(Enum):
+        FIRST = "first"
+        SECOND = "second"
+        THIRD = "third"
+
+    def fn(input: StringEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+    expected_schema = {
+        "type": "object",
+        "required": ["input"],
+        "properties": {"input": {"type": "string", "enum": ["first", "second", "third"]}},
+    }
+
+    assert input_schema == expected_schema
+    assert is_valid_response_dict(input_schema)
+
+
+def test_int_enum_fn():
+    class IntEnum(Enum):
+        FIRST = 1
+        SECOND = 2
+        THIRD = 3
+
+    def fn(input: IntEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+    expected_schema = {
+        "type": "object",
+        "required": ["input"],
+        "properties": {"input": {"type": "integer", "enum": [1, 2, 3]}},
+    }
+    assert input_schema == expected_schema
+    assert is_valid_response_dict(input_schema)
+
+
+def test_mixed_enum_fn():
+    class MixedEnum(Enum):
+        FIRST = 1
+        SECOND = "second"
+        THIRD = 3
+
+    def fn(input: MixedEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    with pytest.raises(ValueError):
+        js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
 
 
 def test_blank_fn():
@@ -172,7 +229,7 @@ def test_dataclass_schema():
 
 def test_pydantic_base_model():
     class Input(BaseModel):
-        x: int
+        x: "int"
         y: Optional[str] = None
 
     class Output(BaseModel):
@@ -223,7 +280,7 @@ def test_pydantic_base_model():
 
 def test_typed_dict():
     class Input(TypedDict):
-        x: int
+        x: "int"
         y: Optional[str]
 
     class Output(TypedDict):
@@ -335,6 +392,11 @@ def test_nested_complex_types():
 
 
 def test_schema_to_base_model():
+    class g_enum(Enum):
+        FIRST = "first"
+        SECOND = "second"
+        THIRD = "third"
+
     def fn(
         a: int,
         b: float | int = 4,
@@ -342,6 +404,7 @@ def test_schema_to_base_model():
         d: bool = False,
         e: Optional[dict[str, Any]] = None,
         f: list[float] = None,
+        g: Optional[g_enum] = None,
     ) -> None:
         pass
 
@@ -352,13 +415,51 @@ def test_schema_to_base_model():
         d: bool = False
         e: Optional[dict[str, Any]] = None
         f: list[float] = None
+        g: Optional[g_enum] = None
 
     input_schema = get_input_schema(fn)
     input_model = js.schema_to_base_model(schema=input_schema)
     input_model_schema = input_model.model_json_schema()
     expected_model_schema = ExpectedInputModel.model_json_schema()
     expected_model_schema["title"] = "reconstructed_model"
-    print()
-    print(input_model_schema)
-    print(expected_model_schema)
     assert input_model_schema == expected_model_schema
+
+
+# These need to be defined outside the code of test_forward_reference_typing
+# for references to resolve:
+@dataclass
+class MockInputClass:
+    a: str
+
+
+@dataclass
+class MockOutputClass:
+    b: bool
+
+
+def test_forward_reference_typing():
+
+    def fn(a: "MockInputClass") -> "MockOutputClass":
+        pass
+
+    parameters = get_types_parameters(fn)
+    input_schema = js.parameters_to_json_schema(parameters=parameters)
+    expected_input_schema = {
+        "type": "object",
+        "required": ["a"],
+        "properties": {
+            "a": {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+        },
+    }
+    assert input_schema == expected_input_schema
+    assert is_valid_input_dict(input_schema)
+
+    return_annotation = get_type_hints(fn)["return"]
+    output_schema = js.response_to_json_schema(return_annotation=return_annotation)
+    expected_output_schema = {
+        "type": "object",
+        "properties": {"b": {"type": "boolean"}},
+        "required": ["b"],
+    }
+    assert output_schema == expected_output_schema
+    assert is_valid_response_dict(output_schema)
