@@ -1,5 +1,6 @@
 import inspect
 from dataclasses import MISSING, fields, is_dataclass
+from enum import Enum, EnumType
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
@@ -46,6 +47,21 @@ def type_to_json_schema(t: Type, args: Optional[tuple[Any, ...]] = None) -> dict
 
 def path_to_json_schema(path: Path) -> dict:
     return {"type": "string", "is_path": True}
+
+
+def enum_to_json_schema(e: Enum) -> dict:
+    values = [i.value for i in e]
+    value_types = [type(value) for value in values]
+    unique_value_types = list(set(value_types))
+    if len(unique_value_types) > 1:
+        raise ValueError(
+            "enum must have consistent types, found mixes: {}".format(
+                ", ".join([e.__name__ for e in unique_value_types])
+            )
+        )
+    value_types = unique_value_types[0]
+    type_string = types_map[value_types]
+    return {"type": type_string, "enum": values}
 
 
 def generic_alias_to_json_schema(t: GenericAlias) -> dict:
@@ -140,6 +156,8 @@ def to_json_schema(val: Any) -> dict:
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
         return union_type_to_json_schema(t=val)
+    if type(val) == EnumType:
+        return enum_to_json_schema(e=val)
     if is_generic_alias(val=val):
         return generic_alias_to_json_schema(t=val)
     if val is Type:

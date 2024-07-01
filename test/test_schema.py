@@ -1,5 +1,6 @@
 import inspect
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional, TypedDict, Union
 
 import pytest
@@ -8,6 +9,61 @@ from pydantic import BaseModel
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_valid_input_dict, is_valid_response_dict
+
+
+def test_string_enum_fn():
+    class StringEnum(Enum):
+        FIRST = "first"
+        SECOND = "second"
+        THIRD = "third"
+
+    def fn(input: StringEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+    expected_schema = {
+        "type": "object",
+        "required": ["input"],
+        "properties": {"input": {"type": "string", "enum": ["first", "second", "third"]}},
+    }
+
+    assert input_schema == expected_schema
+    assert is_validate_dict(input_schema)
+
+
+def test_int_enum_fn():
+    class IntEnum(Enum):
+        FIRST = 1
+        SECOND = 2
+        THIRD = 3
+
+    def fn(input: IntEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
+    expected_schema = {
+        "type": "object",
+        "required": ["input"],
+        "properties": {"input": {"type": "integer", "enum": [1, 2, 3]}},
+    }
+    assert input_schema == expected_schema
+    assert is_validate_dict(input_schema)
+
+
+def test_mixed_enum_fn():
+    class MixedEnum(Enum):
+        FIRST = 1
+        SECOND = "second"
+        THIRD = 3
+
+    def fn(input: MixedEnum) -> None:
+        pass
+
+    sig = inspect.signature(fn)
+    with pytest.raises(ValueError):
+        js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
 
 
 def test_blank_fn():
