@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from starlette.responses import RedirectResponse
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn.utils import (
@@ -74,6 +75,10 @@ def generate_fast_api(
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
         outputs: dict[str, Any]
+
+    @fastapi_app.get("/", include_in_schema=False)
+    async def docs_redirect():
+        return RedirectResponse("/docs")
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
