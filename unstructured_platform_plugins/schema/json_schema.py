@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import MISSING, fields, is_dataclass
-from enum import Enum, EnumType
+from enum import EnumMeta, EnumType
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
@@ -49,7 +49,7 @@ def path_to_json_schema(path: Path) -> dict:
     return {"type": "string", "is_path": True}
 
 
-def enum_to_json_schema(e: Enum) -> dict:
+def enum_to_json_schema(e: EnumMeta) -> dict:
     values = [i.value for i in e]
     value_types = [type(value) for value in values]
     unique_value_types = list(set(value_types))
