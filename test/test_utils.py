@@ -4,7 +4,7 @@ from dataclasses import is_dataclass
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 
-from unstructured_platform_plugins.etl_uvicorn import utils
+from unstructured_platform_plugins.cli import utils
 
 
 def test_get_func_simple():

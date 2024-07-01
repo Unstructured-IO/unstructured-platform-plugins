@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
 
-from unstructured_platform_plugins.etl_uvicorn.utils import (
+from unstructured_platform_plugins.cli.utils import (
     get_func,
     get_input_schema,
     get_output_sig,

@@ -5,7 +5,7 @@ import click
 from uvicorn.config import LOGGING_CONFIG, Config, RawConfigParser
 from uvicorn.main import main, run
 
-from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
+from unstructured_platform_plugins.cli.etl_uvicorn.api_generator import generate_fast_api
 
 
 @dataclass

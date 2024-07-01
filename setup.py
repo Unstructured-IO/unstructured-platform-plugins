@@ -32,8 +32,9 @@ setup(
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "etl-uvicorn=unstructured_platform_plugins.etl_uvicorn.main:cmd",
-            "etl-validate=unstructured_platform_plugins.validate_api:validate_api",
+            "etl-uvicorn=unstructured_platform_plugins.cli.etl_uvicorn.main:cmd",
+            "etl-validate=unstructured_platform_plugins.cli.validate.main:validate_api",
+            "etl-schema=unstructured_platform_plugins.cli.schema_yaml.main:generate_yaml",
         ],
     },
     install_requires=load_requirements("requirements/cli.in")
