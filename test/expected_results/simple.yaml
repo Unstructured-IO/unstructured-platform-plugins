@@ -1,0 +1,22 @@
+inputs:
+  properties:
+    content:
+      properties:
+        name:
+          type: string
+        value:
+          type: number
+      required:
+      - name
+      - value
+      type: object
+  required:
+  - content
+  type: object
+outputs:
+  properties:
+    response:
+      type: object
+  required:
+  - response
+  type: object
