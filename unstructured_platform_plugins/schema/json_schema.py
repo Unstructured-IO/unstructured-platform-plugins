@@ -4,10 +4,12 @@ from enum import EnumMeta, EnumType
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
-from typing import Any, Optional, Type, Union
+from typing import Any, Optional, Type, Union, get_type_hints
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
+
+from unstructured_platform_plugins.schema.utils import TypedParameter
 
 # https://json-schema.org/understanding-json-schema/reference/type
 types_map: dict[Type, str] = {
@@ -90,8 +92,9 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
         return resp
     properties = {}
     required = []
+    type_hints = get_type_hints(class_or_instance)
     for f in fs:
-        t = f.type
+        t = type_hints[f.name]
         f_resp = to_json_schema(t)
         if f.default is not MISSING:
             f_resp["default"] = f.default
@@ -147,11 +150,21 @@ def parameter_to_json_schema(parameter: Parameter) -> dict:
     return resp
 
 
+def typed_parameter_to_json_schema(parameter: TypedParameter) -> dict:
+    param_type = parameter.param_type
+    resp = to_json_schema(param_type)
+    if parameter.default != Parameter.empty:
+        resp["default"] = parameter.default
+    return resp
+
+
 def to_json_schema(val: Any) -> dict:
     if val in [None, NoneType]:
         return {"type": "null"}
     if val is Any:
         return {}
+    if isinstance(val, TypedParameter):
+        return typed_parameter_to_json_schema(parameter=val)
     if isinstance(val, Parameter):
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
@@ -193,7 +206,9 @@ def run_input_checks(parameters: list[Parameter]):
         )
 
 
-def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
+def parameters_to_json_schema(
+    parameters: list[Parameter], type_hints: Optional[dict[str, Type]] = None
+) -> dict:
     run_input_checks(parameters=parameters)
     resp = {"type": "object"}
     properties = {}
