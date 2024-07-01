@@ -156,7 +156,7 @@ def to_json_schema(val: Any) -> dict:
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
         return union_type_to_json_schema(t=val)
-    if type(val) == EnumType:
+    if isinstance(val, EnumType):
         return enum_to_json_schema(e=val)
     if is_generic_alias(val=val):
         return generic_alias_to_json_schema(t=val)
