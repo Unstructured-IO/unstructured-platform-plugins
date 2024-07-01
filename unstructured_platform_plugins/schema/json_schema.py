@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import MISSING, fields, is_dataclass
-from enum import EnumMeta, EnumType
+from enum import Enum, EnumMeta, EnumType
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
@@ -282,6 +282,9 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
             json_type_name=item_type_name, name=f"{name}_type", type_info=items
         )
         t = list[subtype]
+    if "enum" in type_info and isinstance(type_info["enum"], list):
+        enum_content = type_info["enum"]
+        t = Enum(f"{name}_enum", {v: v for v in enum_content})
     return t
 
 

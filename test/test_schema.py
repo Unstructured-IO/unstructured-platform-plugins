@@ -392,6 +392,11 @@ def test_nested_complex_types():
 
 
 def test_schema_to_base_model():
+    class g_enum(Enum):
+        FIRST = "first"
+        SECOND = "second"
+        THIRD = "third"
+
     def fn(
         a: int,
         b: float | int = 4,
@@ -399,6 +404,7 @@ def test_schema_to_base_model():
         d: bool = False,
         e: Optional[dict[str, Any]] = None,
         f: list[float] = None,
+        g: Optional[g_enum] = None,
     ) -> None:
         pass
 
@@ -409,6 +415,7 @@ def test_schema_to_base_model():
         d: bool = False
         e: Optional[dict[str, Any]] = None
         f: list[float] = None
+        g: Optional[g_enum] = None
 
     input_schema = get_input_schema(fn)
     input_model = js.schema_to_base_model(schema=input_schema)
