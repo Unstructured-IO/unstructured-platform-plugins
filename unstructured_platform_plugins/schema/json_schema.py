@@ -133,7 +133,9 @@ def typed_dict_to_json_schem(typed_dict_class) -> dict:
         return resp
     properties = {}
     required = []
-    for name, t in fs.items():
+    type_hints = get_type_hints(typed_dict_class)
+    for name in fs.keys():
+        t = type_hints[name]
         f_resp = to_json_schema(t)
         properties[name] = f_resp
         required.append(name)

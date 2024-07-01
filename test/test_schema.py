@@ -229,7 +229,7 @@ def test_dataclass_schema():
 
 def test_pydantic_base_model():
     class Input(BaseModel):
-        x: int
+        x: "int"
         y: Optional[str] = None
 
     class Output(BaseModel):
@@ -280,7 +280,7 @@ def test_pydantic_base_model():
 
 def test_typed_dict():
     class Input(TypedDict):
-        x: int
+        x: "int"
         y: Optional[str]
 
     class Output(TypedDict):
