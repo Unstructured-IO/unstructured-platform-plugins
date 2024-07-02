@@ -1,12 +1,15 @@
 import inspect
 from dataclasses import MISSING, fields, is_dataclass
+from enum import Enum, EnumMeta, EnumType
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
-from typing import Any, Optional, Type, Union
+from typing import Any, Optional, Type, Union, get_type_hints
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
+
+from unstructured_platform_plugins.schema.utils import TypedParameter
 
 # https://json-schema.org/understanding-json-schema/reference/type
 types_map: dict[Type, str] = {
@@ -48,6 +51,21 @@ def path_to_json_schema(path: Path) -> dict:
     return {"type": "string", "is_path": True}
 
 
+def enum_to_json_schema(e: EnumMeta) -> dict:
+    values = [i.value for i in e]
+    value_types = [type(value) for value in values]
+    unique_value_types = list(set(value_types))
+    if len(unique_value_types) > 1:
+        raise ValueError(
+            "enum must have consistent types, found mixes: {}".format(
+                ", ".join([e.__name__ for e in unique_value_types])
+            )
+        )
+    value_types = unique_value_types[0]
+    type_string = types_map[value_types]
+    return {"type": type_string, "enum": values}
+
+
 def generic_alias_to_json_schema(t: GenericAlias) -> dict:
     origin = t.__origin__
     if origin is Union:
@@ -74,8 +92,9 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
         return resp
     properties = {}
     required = []
+    type_hints = get_type_hints(class_or_instance)
     for f in fs:
-        t = f.type
+        t = type_hints[f.name]
         f_resp = to_json_schema(t)
         if f.default is not MISSING:
             f_resp["default"] = f.default
@@ -114,7 +133,9 @@ def typed_dict_to_json_schem(typed_dict_class) -> dict:
         return resp
     properties = {}
     required = []
-    for name, t in fs.items():
+    type_hints = get_type_hints(typed_dict_class)
+    for name in fs:
+        t = type_hints[name]
         f_resp = to_json_schema(t)
         properties[name] = f_resp
         required.append(name)
@@ -131,15 +152,27 @@ def parameter_to_json_schema(parameter: Parameter) -> dict:
     return resp
 
 
+def typed_parameter_to_json_schema(parameter: TypedParameter) -> dict:
+    param_type = parameter.param_type
+    resp = to_json_schema(param_type)
+    if parameter.default != Parameter.empty:
+        resp["default"] = parameter.default
+    return resp
+
+
 def to_json_schema(val: Any) -> dict:
     if val in [None, NoneType]:
         return {"type": "null"}
     if val is Any:
         return {}
+    if isinstance(val, TypedParameter):
+        return typed_parameter_to_json_schema(parameter=val)
     if isinstance(val, Parameter):
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
         return union_type_to_json_schema(t=val)
+    if isinstance(val, EnumType):
+        return enum_to_json_schema(e=val)
     if is_generic_alias(val=val):
         return generic_alias_to_json_schema(t=val)
     if val is Type:
@@ -175,7 +208,9 @@ def run_input_checks(parameters: list[Parameter]):
         )
 
 
-def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
+def parameters_to_json_schema(
+    parameters: list[Parameter], type_hints: Optional[dict[str, Type]] = None
+) -> dict:
     run_input_checks(parameters=parameters)
     resp = {"type": "object"}
     properties = {}
@@ -247,6 +282,9 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
             json_type_name=item_type_name, name=f"{name}_type", type_info=items
         )
         t = list[subtype]
+    if "enum" in type_info and isinstance(type_info["enum"], list):
+        enum_content = type_info["enum"]
+        t = Enum(f"{name}_enum", {v: v for v in enum_content})
     return t
 
 
