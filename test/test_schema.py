@@ -1,15 +1,17 @@
 import inspect
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, TypedDict, Union, get_type_hints
+from typing import Any, Optional, Union
 
 import pytest
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_valid_input_dict, is_valid_response_dict
-from unstructured_platform_plugins.schema.utils import get_types_parameters
+from unstructured_platform_plugins.schema.utils import get_typed_parameters
+from unstructured_platform_plugins.type_hints import get_type_hints
 
 
 def test_string_enum_fn():
@@ -442,7 +444,7 @@ def test_forward_reference_typing():
     def fn(a: "MockInputClass") -> "MockOutputClass":
         pass
 
-    parameters = get_types_parameters(fn)
+    parameters = get_typed_parameters(fn)
     input_schema = js.parameters_to_json_schema(parameters=parameters)
     expected_input_schema = {
         "type": "object",

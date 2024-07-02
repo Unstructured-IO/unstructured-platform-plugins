@@ -1,7 +1,7 @@
 import inspect
 from dataclasses import is_dataclass
 from types import NoneType
-from typing import Any, Callable, Optional, get_type_hints
+from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 
@@ -9,7 +9,8 @@ from unstructured_platform_plugins.schema.json_schema import (
     parameters_to_json_schema,
     response_to_json_schema,
 )
-from unstructured_platform_plugins.schema.utils import get_types_parameters
+from unstructured_platform_plugins.schema.utils import get_typed_parameters
+from unstructured_platform_plugins.type_hints import get_type_hints
 
 
 def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:
@@ -51,7 +52,7 @@ def get_plugin_id(instance: Any, method_name: Optional[str] = None) -> str:
 
 
 def get_input_schema(func: Callable) -> dict:
-    parameters = get_types_parameters(func)
+    parameters = get_typed_parameters(func)
     return parameters_to_json_schema(parameters)
 
 

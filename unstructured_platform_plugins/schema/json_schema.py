@@ -1,15 +1,16 @@
 import inspect
 from dataclasses import MISSING, fields, is_dataclass
-from enum import Enum, EnumMeta, EnumType
+from enum import Enum, EnumMeta
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
-from typing import Any, Optional, Type, Union, get_type_hints
+from typing import Any, Optional, Type, Union, _UnionGenericAlias
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
 
 from unstructured_platform_plugins.schema.utils import TypedParameter
+from unstructured_platform_plugins.type_hints import get_type_hints
 
 # https://json-schema.org/understanding-json-schema/reference/type
 types_map: dict[Type, str] = {
@@ -29,7 +30,9 @@ def is_generic_alias(val: Any) -> bool:
 
 
 def is_typed_dict(val: Any) -> bool:
-    return inspect.isclass(val) and dict in inspect.getmro(val) and dict != inspect.getmro(val)[0]
+    return (
+        inspect.isclass(val) and dict in inspect.getmro(val) and inspect.getmro(val)[0] is not dict
+    )
 
 
 def type_to_json_schema(t: Type, args: Optional[tuple[Any, ...]] = None) -> dict:
@@ -171,7 +174,7 @@ def to_json_schema(val: Any) -> dict:
         return parameter_to_json_schema(parameter=val)
     if isinstance(val, UnionType):
         return union_type_to_json_schema(t=val)
-    if isinstance(val, EnumType):
+    if isinstance(val, EnumMeta):
         return enum_to_json_schema(e=val)
     if is_generic_alias(val=val):
         return generic_alias_to_json_schema(t=val)
@@ -237,8 +240,11 @@ def run_output_checks(return_annotation: Any):
         return
     if is_dataclass(return_annotation):
         return
-    if inspect.isclass(return_annotation) and issubclass(return_annotation, BaseModel):
-        return
+    try:
+        if inspect.isclass(return_annotation) and issubclass(return_annotation, BaseModel):
+            return
+    except TypeError:
+        pass
     if return_annotation is None:
         return
     if return_annotation is NoneType:
@@ -306,7 +312,9 @@ def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Typ
                     )
                     for index, type_info in enumerate(any_of_entries)
                 ]
-                t = Union[*type_info]
+                # To support python3.10, unpacking not supported
+                # t = Union[*type_info]
+                t = _UnionGenericAlias(Union, tuple(type_info))
             else:
                 entry_info = any_of_entries[0]
                 json_type_name = entry_info["type"]
