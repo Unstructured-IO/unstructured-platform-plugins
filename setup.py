@@ -27,7 +27,7 @@ def load_requirements(file: Union[str, Path]) -> List[str]:
 setup(
     name="unstructured-platform-plugins",
     version="1.0.0",
-    python_requires=">=3.12,<3.13",
+    python_requires=">=3.10,<3.13",
     url="https://github.com/Unstructured-IO/unstructured-platform-plugins",  # noqa: 501
     packages=find_packages(),
     entry_points={
