@@ -24,7 +24,6 @@ def get_typed_parameters(fn: Callable) -> list[TypedParameter]:
     for p in parameters:
         typed_param = TypedParameter.from_paramaeter(param=p)
         if isinstance(typed_param.annotation, str):
-            # remove optional wrapper if 'Optional' not part of the
             typed_param.param_type = type_hints[typed_param.name]
         else:
             typed_param.param_type = typed_param.annotation
