@@ -89,9 +89,11 @@ def union_type_to_json_schema(t: UnionType) -> dict:
         return {"anyOf": [to_json_schema(t) for t in types]}
 
 
-def dataclass_to_json_schema(class_or_instance) -> dict:
+def dataclass_to_json_schema(class_or_instance: Any) -> dict:
     resp = {"type": "object"}
-    if isinstance(class_or_instance, FileData) or class_or_instance is FileData:
+    is_filedata_instance = isinstance(class_or_instance, FileData)
+    is_filedata_class = class_or_instance is FileData
+    if is_filedata_instance or is_filedata_class:
         resp["is_file_data"] = True
     fs = fields(class_or_instance)
     if not fs:
