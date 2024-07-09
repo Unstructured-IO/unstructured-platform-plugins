@@ -56,7 +56,7 @@ def generate_fast_api(
     async def run_job(request: InputSchema) -> response_type:
         logger.debug(f"invoking function: {func}")
         input_schema = get_input_schema(func)
-        request_dict = request.dict()
+        request_dict = request.model_dump()
         for k, v in request_dict.items():
             if schema := input_schema.get(k):  # noqa: SIM102
                 if (

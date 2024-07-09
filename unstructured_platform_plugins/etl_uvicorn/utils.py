@@ -1,6 +1,7 @@
 import inspect
 from dataclasses import is_dataclass
-from types import NoneType
+from enum import EnumMeta
+from types import GenericAlias, NoneType
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
@@ -76,11 +77,21 @@ def get_schema_dict(func) -> dict:
 
 
 def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
-    input_params = {p.name: p for p in inspect.signature(func).parameters.values()}
-    for k, v in input_params.items():
-        annotation = v.annotation
-        if is_dataclass(annotation) and k in raw_inputs and isinstance(raw_inputs[k], dict):
-            raw_inputs[k] = annotation(**raw_inputs[k])
-        elif inspect.isclass(annotation) and issubclass(annotation, BaseModel):
-            raw_inputs[k] = annotation.parse_obj(raw_inputs[k])
+    type_info = get_type_hints(func)
+    type_info.pop("return")
+    for field_name, type_data in type_info.items():
+        if (
+            is_dataclass(type_data)
+            and field_name in raw_inputs
+            and isinstance(raw_inputs[field_name], dict)
+        ):
+            raw_inputs[field_name] = type_data(**raw_inputs[field_name])
+        elif isinstance(type_data, EnumMeta):
+            raw_inputs[field_name] = raw_inputs[field_name]
+        elif (
+            inspect.isclass(type_data)
+            and not isinstance(type_data, GenericAlias)
+            and issubclass(type_data, BaseModel)
+        ):
+            raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
     return raw_inputs

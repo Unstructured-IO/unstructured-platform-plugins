@@ -1,5 +1,6 @@
 import inspect
-from dataclasses import is_dataclass
+from dataclasses import dataclass, is_dataclass
+from enum import Enum
 
 from pydantic import BaseModel
 from uvicorn.importer import import_from_string
@@ -82,3 +83,39 @@ def test_get_plugin_id_class_instance():
     instance = import_from_string("test.assets.simple_hash_class:get_hash_class_instance")
     hash_value = utils.get_plugin_id(instance, method_name="my_hash")
     assert hash_value == "plugin_id_class_123"
+
+
+@dataclass
+class A:
+    b: int
+    c: float
+
+
+class B(BaseModel):
+    d: bool
+    e: dict
+
+
+class MyEnum(Enum):
+    VALUE = "value"
+
+
+def test_map_inputs():
+    def fn(a: A, b: B, c: MyEnum, d: list) -> None:
+        pass
+
+    inputs = {
+        "a": {"b": 4, "c": 5.6},
+        "b": {"d": True, "e": {"key": "value"}},
+        "c": MyEnum.VALUE.value,
+        "d": [1, 2, 3],
+    }
+
+    mapped_inputs = utils.map_inputs(func=fn, raw_inputs=inputs)
+    expected = {
+        "a": A(b=4, c=5.6),
+        "b": B(d=True, e={"key": "value"}),
+        "c": MyEnum.VALUE.value,
+        "d": [1, 2, 3],
+    }
+    assert mapped_inputs == expected
