@@ -8,6 +8,7 @@ from typing import Any, Optional, Type, Union, _UnionGenericAlias
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
+from unstructured.ingest.v2.interfaces import FileData
 
 from unstructured_platform_plugins.schema.utils import TypedParameter
 from unstructured_platform_plugins.type_hints import get_type_hints
@@ -88,8 +89,12 @@ def union_type_to_json_schema(t: UnionType) -> dict:
         return {"anyOf": [to_json_schema(t) for t in types]}
 
 
-def dataclass_to_json_schema(class_or_instance) -> dict:
+def dataclass_to_json_schema(class_or_instance: Any) -> dict:
     resp = {"type": "object"}
+    is_filedata_instance = isinstance(class_or_instance, FileData)
+    is_filedata_class = class_or_instance is FileData
+    if is_filedata_instance or is_filedata_class:
+        resp["is_file_data"] = True
     fs = fields(class_or_instance)
     if not fs:
         return resp
@@ -100,7 +105,7 @@ def dataclass_to_json_schema(class_or_instance) -> dict:
         t = type_hints[f.name]
         f_resp = to_json_schema(t)
         if f.default is not MISSING:
-            f_resp["default"] = f.default
+            f_resp["default"] = f.default.value if isinstance(f.default, Enum) else f.default
         else:
             required.append(f.name)
         properties[f.name] = f_resp
