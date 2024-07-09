@@ -79,6 +79,7 @@ def get_schema_dict(func) -> dict:
 def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
     # deserializes the raw dictionary coming in from the api into the underlying data
     # types expected by the function when being invoked
+    raw_inputs = raw_inputs.copy()
     type_info = get_type_hints(func)
     type_info.pop("return")
     for field_name, type_data in type_info.items():
