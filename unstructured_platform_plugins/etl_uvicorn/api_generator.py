@@ -46,31 +46,44 @@ def generate_fast_api(
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
+    print(f"RESPONSE TYPE: {response_type}")
 
-    InputSchema = schema_to_base_model(get_input_schema(func))
-    logger.debug(f"input model set to: {InputSchema.model_fields}")
+    input_schema_model = schema_to_base_model(get_input_schema(func))
 
     logging.getLogger("etl_uvicorn.fastapi")
 
-    @fastapi_app.post("/invoke")
-    async def run_job(request: InputSchema) -> response_type:
-        logger.debug(f"invoking function: {func}")
-        input_schema = get_input_schema(func)
-        request_dict = request.model_dump()
-        for k, v in request_dict.items():
-            if schema := input_schema.get(k):  # noqa: SIM102
-                if (
-                    schema.get("type") == "string"
-                    and schema.get("is_path", False)
-                    and isinstance(v, str)
-                ):
-                    request_dict[k] = Path(v)
-        map_inputs(func=func, raw_inputs=request_dict)
-        logger.debug(f"passing inputs to function: {request_dict}")
-        if inspect.iscoroutinefunction(func):
-            return await func(**request_dict)
-        else:
-            return func(**request_dict)
+    if input_schema_model.model_fields:
+        logger.debug(f"input model set to: {input_schema_model.model_fields}")
+
+        @fastapi_app.post("/invoke", response_model=response_type)
+        async def run_job(request: input_schema_model) -> response_type:
+            logger.debug(f"invoking function: {func}")
+            input_schema = get_input_schema(func)
+            request_dict = request.model_dump()
+            for k, v in request_dict.items():
+                if schema := input_schema.get(k):  # noqa: SIM102
+                    if (
+                        schema.get("type") == "string"
+                        and schema.get("is_path", False)
+                        and isinstance(v, str)
+                    ):
+                        request_dict[k] = Path(v)
+            map_inputs(func=func, raw_inputs=request_dict)
+            logger.debug(f"passing inputs to function: {request_dict}")
+            if inspect.iscoroutinefunction(func):
+                return await func(**request_dict)
+            else:
+                return func(**request_dict)
+
+    else:
+
+        @fastapi_app.post("/invoke", response_model=response_type)
+        async def run_job() -> response_type:
+            logger.debug(f"invoking function without inputs: {func}")
+            if inspect.iscoroutinefunction(func):
+                return await func()
+            else:
+                return func()
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]

@@ -216,9 +216,9 @@ def run_input_checks(parameters: list[Parameter]):
         )
 
 
-def parameters_to_json_schema(
-    parameters: list[Parameter], type_hints: Optional[dict[str, Type]] = None
-) -> dict:
+def parameters_to_json_schema(parameters: list[Parameter]) -> dict:
+    if not parameters:
+        return {"type": "null"}
     run_input_checks(parameters=parameters)
     resp = {"type": "object"}
     properties = {}

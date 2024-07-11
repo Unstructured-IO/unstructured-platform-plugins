@@ -76,7 +76,7 @@ def test_blank_fn():
 
     sig = inspect.signature(fn)
     input_schema = js.parameters_to_json_schema(parameters=list(sig.parameters.values()))
-    expected_schema = {"type": "object"}
+    expected_schema = {"type": "null"}
     assert input_schema == expected_schema
     assert is_valid_input_dict(input_schema)
 
