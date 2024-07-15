@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -24,6 +24,14 @@ from unstructured_platform_plugins.schema.json_schema import (
 )
 
 logger = logging.getLogger("uvicorn.error")
+
+
+async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
+    kwargs = kwargs or {}
+    if inspect.iscoroutinefunction(func):
+        return await func(**kwargs)
+    else:
+        return func(**kwargs)
 
 
 def generate_fast_api(
@@ -46,7 +54,6 @@ def generate_fast_api(
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
-    print(f"RESPONSE TYPE: {response_type}")
 
     input_schema_model = schema_to_base_model(get_input_schema(func))
 
@@ -70,20 +77,14 @@ def generate_fast_api(
                         request_dict[k] = Path(v)
             map_inputs(func=func, raw_inputs=request_dict)
             logger.debug(f"passing inputs to function: {request_dict}")
-            if inspect.iscoroutinefunction(func):
-                return await func(**request_dict)
-            else:
-                return func(**request_dict)
+            return await invoke_func(func=func, kwargs=request_dict)
 
     else:
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job() -> response_type:
             logger.debug(f"invoking function without inputs: {func}")
-            if inspect.iscoroutinefunction(func):
-                return await func()
-            else:
-                return func()
+            return await invoke_func(func=func, kwargs=request_dict)
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
