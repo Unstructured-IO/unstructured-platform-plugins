@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional, Callable
+from typing import Any, Callable, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -84,7 +84,7 @@ def generate_fast_api(
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job() -> response_type:
             logger.debug(f"invoking function without inputs: {func}")
-            return await invoke_func(func=func, kwargs=request_dict)
+            return await invoke_func(func=func)
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
