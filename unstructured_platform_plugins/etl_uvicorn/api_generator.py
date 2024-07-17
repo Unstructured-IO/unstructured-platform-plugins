@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from uvicorn.importer import import_from_string
@@ -77,14 +77,28 @@ def generate_fast_api(
                         request_dict[k] = Path(v)
             map_inputs(func=func, raw_inputs=request_dict)
             logger.debug(f"passing inputs to function: {request_dict}")
-            return await invoke_func(func=func, kwargs=request_dict)
+            try:
+                return await invoke_func(func=func, kwargs=request_dict)
+            except Exception as e:
+                logger.error(f"failed to invoke plugin with inputs {request_dict}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"failed to invoke plugin: {e}",
+                )
 
     else:
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job() -> response_type:
             logger.debug(f"invoking function without inputs: {func}")
-            return await invoke_func(func=func)
+            try:
+                return await invoke_func(func=func)
+            except Exception as e:
+                logger.error(f"failed to invoke plugin: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"failed to invoke plugin: {e}",
+                )
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
