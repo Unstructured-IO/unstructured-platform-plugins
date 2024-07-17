@@ -2,6 +2,7 @@ import inspect
 from dataclasses import dataclass, is_dataclass
 from enum import Enum
 
+import pytest
 from pydantic import BaseModel
 from unstructured.ingest.v2.interfaces import FileData
 from uvicorn.importer import import_from_string
@@ -127,3 +128,13 @@ def test_map_inputs():
         "e": file_data,
     }
     assert mapped_inputs == expected
+
+
+def test_map_inputs_error():
+    def fn(a: FileData) -> None:
+        pass
+
+    inputs = {"a": {"not": "the", "right": "values"}}
+
+    with pytest.raises(KeyError):
+        utils.map_inputs(func=fn, raw_inputs=inputs)
