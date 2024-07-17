@@ -64,7 +64,7 @@ def generate_fast_api(
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job(request: input_schema_model) -> response_type:
-            logger.debug(f"invoking function: {func}")
+            logger.debug(f"invoking function {func} with input: {request.model_dump()}")
             input_schema = get_input_schema(func)
             request_dict = request.model_dump()
             for k, v in request_dict.items():

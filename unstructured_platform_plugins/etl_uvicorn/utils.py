@@ -106,5 +106,7 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
                 raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
         except Exception as e:
             exception_type = type(e)
-            raise exception_type(f"failed to map input: {field_value}") from e
+            raise exception_type(
+                f"failed to map input for field {field_name}: {field_value}"
+            ) from e
     return raw_inputs
