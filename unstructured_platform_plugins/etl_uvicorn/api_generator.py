@@ -3,7 +3,6 @@ import hashlib
 import inspect
 import json
 import logging
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, status
@@ -65,16 +64,8 @@ def generate_fast_api(
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job(request: input_schema_model) -> response_type:
             logger.debug(f"invoking function {func} with input: {request.model_dump()}")
-            input_schema = get_input_schema(func)
-            request_dict = request.model_dump()
-            for k, v in request_dict.items():
-                if schema := input_schema.get(k):  # noqa: SIM102
-                    if (
-                        schema.get("type") == "string"
-                        and schema.get("is_path", False)
-                        and isinstance(v, str)
-                    ):
-                        request_dict[k] = Path(v)
+            # Create dictionary from pydantic model while preserving underlying types
+            request_dict = {f: getattr(request, f) for f in request.model_fields}
             map_inputs(func=func, raw_inputs=request_dict)
             logger.debug(f"passing inputs to function: {request_dict}")
             try:
