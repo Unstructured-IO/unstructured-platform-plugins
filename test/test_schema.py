@@ -1,6 +1,7 @@
 import inspect
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional, Union
 
 import pytest
@@ -408,6 +409,8 @@ def test_schema_to_base_model():
         e: Optional[dict[str, Any]] = None,
         f: list[float] = None,
         g: Optional[g_enum] = None,
+        h: FileData | None = None,
+        i: Path | None = None,
     ) -> None:
         pass
 
@@ -419,6 +422,8 @@ def test_schema_to_base_model():
         e: Optional[dict[str, Any]] = None
         f: list[float] = None
         g: Optional[g_enum] = None
+        h: FileData | None = None
+        i: Path | None = None
 
     input_schema = get_input_schema(fn)
     input_model = js.schema_to_base_model(schema=input_schema)
