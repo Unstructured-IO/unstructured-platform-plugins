@@ -80,7 +80,9 @@ def generate_fast_api(
             try:
                 return await invoke_func(func=func, kwargs=request_dict)
             except Exception as e:
-                logger.error(f"failed to invoke plugin with inputs {request_dict}: {e}")
+                logger.error(
+                    f"failed to invoke plugin with inputs {request_dict}: {e}", exc_info=True
+                )
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"failed to invoke plugin: {e}",
@@ -94,7 +96,7 @@ def generate_fast_api(
             try:
                 return await invoke_func(func=func)
             except Exception as e:
-                logger.error(f"failed to invoke plugin: {e}")
+                logger.error(f"failed to invoke plugin: {e}", exc_info=True)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"failed to invoke plugin: {e}",
