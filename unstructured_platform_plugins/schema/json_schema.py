@@ -262,8 +262,12 @@ def response_to_json_schema(return_annotation: Any) -> dict:
     return to_json_schema(val=return_annotation)
 
 
-def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Type[BaseModel]:
+def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Type:
     t = typed_map_reverse[json_type_name]
+    if t is dict and type_info.get("is_file_data", False):
+        return FileData
+    if t is str and type_info.get("is_path", False):
+        return Path
     if t is dict and "properties" in type_info:
         t = schema_to_base_model(
             schema=type_info["properties"],

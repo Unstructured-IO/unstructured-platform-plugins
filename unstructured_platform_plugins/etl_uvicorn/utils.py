@@ -4,6 +4,7 @@ from enum import EnumMeta
 from types import GenericAlias, NoneType
 from typing import Any, Callable, Optional
 
+from dataclasses_json import DataClassJsonMixin
 from pydantic import BaseModel
 
 from unstructured_platform_plugins.schema.json_schema import (
@@ -83,18 +84,29 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
     type_info = get_type_hints(func)
     type_info.pop("return")
     for field_name, type_data in type_info.items():
-        if (
-            is_dataclass(type_data)
-            and field_name in raw_inputs
-            and isinstance(raw_inputs[field_name], dict)
-        ):
-            raw_inputs[field_name] = type_data(**raw_inputs[field_name])
-        elif isinstance(type_data, EnumMeta):
-            raw_inputs[field_name] = raw_inputs[field_name]
-        elif (
-            inspect.isclass(type_data)
-            and not isinstance(type_data, GenericAlias)
-            and issubclass(type_data, BaseModel)
-        ):
-            raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
+        if field_name not in raw_inputs:
+            continue
+        field_value = raw_inputs[field_name]
+        try:
+            if (
+                inspect.isclass(type_data)
+                and issubclass(type_data, DataClassJsonMixin)
+                and isinstance(field_value, dict)
+            ):
+                raw_inputs[field_name] = type_data.from_dict(raw_inputs[field_name])
+            elif is_dataclass(type_data) and isinstance(field_value, dict):
+                raw_inputs[field_name] = type_data(**raw_inputs[field_name])
+            elif isinstance(type_data, EnumMeta):
+                raw_inputs[field_name] = raw_inputs[field_name]
+            elif (
+                inspect.isclass(type_data)
+                and not isinstance(type_data, GenericAlias)
+                and issubclass(type_data, BaseModel)
+            ):
+                raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
+        except Exception as e:
+            exception_type = type(e)
+            raise exception_type(
+                f"failed to map input for field {field_name}: {field_value}"
+            ) from e
     return raw_inputs

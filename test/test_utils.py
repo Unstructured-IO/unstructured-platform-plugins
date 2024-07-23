@@ -2,7 +2,9 @@ import inspect
 from dataclasses import dataclass, is_dataclass
 from enum import Enum
 
+import pytest
 from pydantic import BaseModel
+from unstructured.ingest.v2.interfaces import FileData
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn import utils
@@ -101,14 +103,20 @@ class MyEnum(Enum):
 
 
 def test_map_inputs():
-    def fn(a: A, b: B, c: MyEnum, d: list) -> None:
+    def fn(a: A, b: B, c: MyEnum, d: list, e: FileData) -> None:
         pass
 
+    file_data = FileData(
+        identifier="custom_file_data",
+        connector_type="mock_connector",
+        additional_metadata={"additional": "metadata"},
+    )
     inputs = {
         "a": {"b": 4, "c": 5.6},
         "b": {"d": True, "e": {"key": "value"}},
         "c": MyEnum.VALUE.value,
         "d": [1, 2, 3],
+        "e": file_data.to_dict(),
     }
 
     mapped_inputs = utils.map_inputs(func=fn, raw_inputs=inputs)
@@ -117,5 +125,16 @@ def test_map_inputs():
         "b": B(d=True, e={"key": "value"}),
         "c": MyEnum.VALUE.value,
         "d": [1, 2, 3],
+        "e": file_data,
     }
     assert mapped_inputs == expected
+
+
+def test_map_inputs_error():
+    def fn(a: FileData) -> None:
+        pass
+
+    inputs = {"a": {"not": "the", "right": "values"}}
+
+    with pytest.raises(KeyError):
+        utils.map_inputs(func=fn, raw_inputs=inputs)

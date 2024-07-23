@@ -3,10 +3,9 @@ import hashlib
 import inspect
 import json
 import logging
-from pathlib import Path
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from uvicorn.importer import import_from_string
@@ -64,27 +63,35 @@ def generate_fast_api(
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job(request: input_schema_model) -> response_type:
-            logger.debug(f"invoking function: {func}")
-            input_schema = get_input_schema(func)
-            request_dict = request.model_dump()
-            for k, v in request_dict.items():
-                if schema := input_schema.get(k):  # noqa: SIM102
-                    if (
-                        schema.get("type") == "string"
-                        and schema.get("is_path", False)
-                        and isinstance(v, str)
-                    ):
-                        request_dict[k] = Path(v)
+            logger.debug(f"invoking function {func} with input: {request.model_dump()}")
+            # Create dictionary from pydantic model while preserving underlying types
+            request_dict = {f: getattr(request, f) for f in request.model_fields}
             map_inputs(func=func, raw_inputs=request_dict)
             logger.debug(f"passing inputs to function: {request_dict}")
-            return await invoke_func(func=func, kwargs=request_dict)
+            try:
+                return await invoke_func(func=func, kwargs=request_dict)
+            except Exception as e:
+                logger.error(
+                    f"failed to invoke plugin with inputs {request_dict}: {e}", exc_info=True
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"failed to invoke plugin: {e}",
+                )
 
     else:
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job() -> response_type:
             logger.debug(f"invoking function without inputs: {func}")
-            return await invoke_func(func=func)
+            try:
+                return await invoke_func(func=func)
+            except Exception as e:
+                logger.error(f"failed to invoke plugin: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"failed to invoke plugin: {e}",
+                )
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
