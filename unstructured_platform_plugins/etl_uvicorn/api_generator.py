@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, status
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from uvicorn.importer import import_from_string
@@ -21,6 +21,7 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
+from unstructured_platform_plugins.schema.usage import UsageData
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -54,44 +55,53 @@ def generate_fast_api(
 
     response_type = get_output_sig(func)
 
-    input_schema_model = schema_to_base_model(get_input_schema(func))
+    class InvokeResponse(BaseModel):
+        usage: list[UsageData]
+        status_code: int
+        status_code_text: Optional[str] = None
+        output: Optional[response_type] = None
+
+    input_schema = get_input_schema(func, omit=["usage"])
+    input_schema_model = schema_to_base_model(input_schema)
 
     logging.getLogger("etl_uvicorn.fastapi")
 
-    if input_schema_model.model_fields:
-        logger.debug(f"input model set to: {input_schema_model.model_fields}")
+    usage: list[UsageData] = []
 
-        @fastapi_app.post("/invoke", response_model=response_type)
-        async def run_job(request: input_schema_model) -> response_type:
+    async def wrap_fn(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> InvokeResponse:
+        request_dict = kwargs if kwargs else {}
+        request_dict["usage"] = usage
+        try:
+            output = await invoke_func(func=func, kwargs=request_dict)
+            return InvokeResponse(usage=usage, status_code=status.HTTP_200_OK, output=output)
+        except Exception as invoke_error:
+            logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
+            return InvokeResponse(
+                usage=usage,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code_text=f"failed to invoke plugin: "
+                f"[{invoke_error.__class__.__name__}] {invoke_error}",
+            )
+
+    if input_schema_model.model_fields:
+
+        @fastapi_app.post("/invoke", response_model=InvokeResponse)
+        async def run_job(request: input_schema_model) -> InvokeResponse:
             logger.debug(f"invoking function {func} with input: {request.model_dump()}")
             # Create dictionary from pydantic model while preserving underlying types
             request_dict = {f: getattr(request, f) for f in request.model_fields}
             map_inputs(func=func, raw_inputs=request_dict)
             logger.debug(f"passing inputs to function: {request_dict}")
-            try:
-                return await invoke_func(func=func, kwargs=request_dict)
-            except Exception as e:
-                logger.error(
-                    f"failed to invoke plugin with inputs {request_dict}: {e}", exc_info=True
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"failed to invoke plugin: {e}",
-                )
+            return await wrap_fn(func=func, kwargs=request_dict)
 
     else:
 
         @fastapi_app.post("/invoke", response_model=response_type)
         async def run_job() -> response_type:
             logger.debug(f"invoking function without inputs: {func}")
-            try:
-                return await invoke_func(func=func)
-            except Exception as e:
-                logger.error(f"failed to invoke plugin: {e}", exc_info=True)
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"failed to invoke plugin: {e}",
-                )
+            return await wrap_fn(
+                func=func,
+            )
 
     class SchemaOutputResponse(BaseModel):
         inputs: dict[str, Any]
