@@ -53,8 +53,11 @@ def get_plugin_id(instance: Any, method_name: Optional[str] = None) -> str:
     return ref_id
 
 
-def get_input_schema(func: Callable) -> dict:
+def get_input_schema(func: Callable, omit: Optional[list[str]] = None) -> dict:
+
     parameters = get_typed_parameters(func)
+    if omit:
+        parameters = [p for p in parameters if p.name not in omit]
     return parameters_to_json_schema(parameters)
 
 
@@ -70,9 +73,9 @@ def get_output_schema(func: Callable) -> dict:
     return response_to_json_schema(get_output_sig(func))
 
 
-def get_schema_dict(func) -> dict:
+def get_schema_dict(func, omit: list[str] = ["usage"]) -> dict:
     return {
-        "inputs": get_input_schema(func),
+        "inputs": get_input_schema(func, omit=omit),
         "outputs": get_output_schema(func),
     }
 
