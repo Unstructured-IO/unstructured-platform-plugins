@@ -270,7 +270,7 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
         return Path
     if t is dict and "properties" in type_info:
         t = schema_to_base_model(
-            schema=type_info["properties"],
+            schema=type_info,
             name=name,
         )
     if t is dict and "items" in type_info and isinstance(type_info["items"], dict):
@@ -305,7 +305,7 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
 
 def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
-    properties = schema.get("properties", {})
+    properties = schema["properties"]
 
     for k, v in properties.items():
         optional = False
