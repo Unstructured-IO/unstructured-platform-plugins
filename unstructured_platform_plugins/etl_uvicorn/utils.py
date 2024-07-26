@@ -73,9 +73,9 @@ def get_output_schema(func: Callable) -> dict:
     return response_to_json_schema(get_output_sig(func))
 
 
-def get_schema_dict(func) -> dict:
+def get_schema_dict(func, omit: list[str] = ["usage"]) -> dict:
     return {
-        "inputs": get_input_schema(func),
+        "inputs": get_input_schema(func, omit=omit),
         "outputs": get_output_schema(func),
     }
 

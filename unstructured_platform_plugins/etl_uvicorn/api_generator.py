@@ -70,7 +70,10 @@ def generate_fast_api(
 
     async def wrap_fn(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> InvokeResponse:
         request_dict = kwargs if kwargs else {}
-        request_dict["usage"] = usage
+        if "usage" in inspect.signature(func).parameters:
+            request_dict["usage"] = usage
+        else:
+            logger.warning("usage data not an expected parameter, omitting")
         try:
             output = await invoke_func(func=func, kwargs=request_dict)
             return InvokeResponse(usage=usage, status_code=status.HTTP_200_OK, output=output)
