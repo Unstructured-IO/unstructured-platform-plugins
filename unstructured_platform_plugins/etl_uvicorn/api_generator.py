@@ -34,11 +34,25 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
         return func(**kwargs)
 
 
+def check_precheck_func(precheck_func: Callable):
+    sig = inspect.signature(precheck_func)
+    inputs = sig.parameters.values()
+    outputs = sig.return_annotation
+    if len(inputs) == 1:
+        i = inputs[0]
+        if i.name != "usage" or i.annotation is list:
+            raise ValueError("the only input available for precheck is usage which must be a list")
+    if outputs not in [None, sig.empty]:
+        raise ValueError(f"no output should exist for precheck function, found: {outputs}")
+
+
 def generate_fast_api(
     app: str,
     method_name: Optional[str] = None,
     id_str: Optional[str] = None,
     id_method: Optional[str] = None,
+    precheck_str: Optional[str] = None,
+    precheck_method: Optional[str] = None,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -49,6 +63,16 @@ def generate_fast_api(
         plugin_id = hashlib.sha256(
             json.dumps(get_schema_dict(func), sort_keys=True).encode()
         ).hexdigest()[:32]
+
+    precheck_func = None
+    if precheck_str:
+        precheck_instance = import_from_string(precheck_str)
+        precheck_func = get_func(precheck_instance, precheck_method)
+    elif precheck_method:
+        precheck_func = get_func(instance, precheck_method)
+    if precheck_func is not None:
+        check_precheck_func(precheck_func=precheck_func)
+
     logger.debug(f"set static id response to: {plugin_id}")
 
     fastapi_app = FastAPI()
@@ -66,9 +90,8 @@ def generate_fast_api(
 
     logging.getLogger("etl_uvicorn.fastapi")
 
-    usage: list[UsageData] = []
-
     async def wrap_fn(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> InvokeResponse:
+        usage: list[UsageData] = []
         request_dict = kwargs if kwargs else {}
         if "usage" in inspect.signature(func).parameters:
             request_dict["usage"] = usage
@@ -114,11 +137,28 @@ def generate_fast_api(
     async def docs_redirect():
         return RedirectResponse("/docs")
 
+    class InvokePrecheckResponse(BaseModel):
+        usage: list[UsageData]
+        status_code: int
+        status_code_text: Optional[str] = None
+
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
         schema = get_schema_dict(func)
         resp = SchemaOutputResponse(inputs=schema["inputs"], outputs=schema["outputs"])
         return resp
+
+    @fastapi_app.get("/precheck")
+    async def run_precheck() -> InvokePrecheckResponse:
+        if precheck_func:
+            fn_response = await wrap_fn(func=precheck_func)
+            return InvokePrecheckResponse(
+                status_code=fn_response.status_code,
+                status_code_text=fn_response.status_code_text,
+                usage=fn_response.usage,
+            )
+        else:
+            return InvokePrecheckResponse(status_code=status.HTTP_200_OK, usage=[])
 
     @fastapi_app.get("/id")
     async def get_id() -> str:

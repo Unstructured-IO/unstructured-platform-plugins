@@ -33,6 +33,8 @@ def get_command() -> click.Command:
         method_name: Optional[str] = None,
         plugin_id: Optional[str] = None,
         plugin_id_method: Optional[str] = None,
+        precheck_app: Optional[str] = None,
+        precheck_app_method: Optional[str] = None,
         **kwargs,
     ):
         # Make sure logging is configured before the call to run() so any setup has the same format
@@ -44,7 +46,12 @@ def get_command() -> click.Command:
         )
         config.configure_logging()
         fastapi_app = generate_fast_api(
-            app=app, method_name=method_name, id_str=plugin_id, id_method=plugin_id_method
+            app=app,
+            method_name=method_name,
+            id_str=plugin_id,
+            id_method=plugin_id_method,
+            precheck_str=precheck_app,
+            precheck_method=precheck_app_method,
         )
         # Explicitly map values that are manipulated in the original
         # call to run(), preventing **kwargs reference
@@ -85,6 +92,22 @@ def get_command() -> click.Command:
                 default=None,
                 help="If plugin id reference is a class, what method to wrap. "
                 "Will fall back to __call__ if none is provided.",
+            ),
+            click.Option(
+                ["--precheck-app"],
+                required=False,
+                type=str,
+                default=None,
+                help="If provided, must point to code to run for precheck",
+            ),
+            click.Option(
+                ["--precheck-app-method"],
+                required=False,
+                type=str,
+                default=None,
+                help="It provided, points to a method to call on a class. "
+                "If precheck-app not provided, assumes method "
+                "lives on main class passes in.",
             ),
         ]
     )
