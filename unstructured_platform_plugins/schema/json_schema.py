@@ -305,6 +305,8 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
 
 def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Type[BaseModel]:
     inputs = {}
+    if schema["type"] == "null":
+        return create_model(name)
     properties = schema["properties"]
 
     for k, v in properties.items():
