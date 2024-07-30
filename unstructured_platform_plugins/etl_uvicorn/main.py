@@ -105,7 +105,7 @@ def get_command() -> click.Command:
                 required=False,
                 type=str,
                 default=None,
-                help="It provided, points to a method to call on a class. "
+                help="If provided, points to a method to call on a class. "
                 "If precheck-app not provided, assumes method "
                 "lives on main class passes in.",
             ),
