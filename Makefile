@@ -1,13 +1,3 @@
-PACKAGE_NAME := platform
-PROJECT_NAME := api
-PROJECT_PATH := platform_api
-ARCH=amd64
-GIT_HASH := $(shell git rev-parse --short HEAD)
-GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
-VERSION_SCRIPTS_PATH=scripts
-IMAGE_REPOSITORY := "${PACKAGE_NAME}-${PROJECT_NAME}"
-IMAGE_REGISTRY=uticplatform.azurecr.io
-
 ###########
 # INSTALL #
 ###########
@@ -30,6 +20,10 @@ install-lint:
 .PHONY: install-test
 install-test:
 	pip install -r requirements/test.txt
+
+.PHONY: install-release
+install-release:
+	pip install -r requirements/release.txt
 
 ###########
 #  TIDY   #
@@ -54,6 +48,11 @@ tidy-black:
 tidy-autoflake:
 	autoflake --in-place .
 
+.PHONY: version-sync
+version-sync:
+	scripts/version-sync.sh \
+		-f "unstructured_platform_plugins/__version__.py" semver
+
 ###########
 #  CHECK  #
 ###########
@@ -62,7 +61,7 @@ tidy-autoflake:
 check: check-python check-shell
 
 .PHONY: check-python
-check-python: check-black check-flake8 check-ruff check-autoflake
+check-python: check-black check-flake8 check-ruff check-autoflake check-version
 
 .PHONY: check-black
 check-black:
@@ -83,6 +82,12 @@ check-autoflake:
 .PHONY: check-shell
 check-shell:
 	shfmt -d .
+
+.PHONY: check-version
+check-version:
+    # Fail if syncing version would produce changes
+	scripts/version-sync.sh -c \
+		-f "unstructured_platform_plugins/__version__.py" semver
 
 ###########
 #  TEST   #

@@ -3,6 +3,8 @@ from typing import List, Union
 
 from setuptools import find_packages, setup
 
+from unstructured_platform_plugins.__version__ import __version__
+
 
 def load_requirements(file: Union[str, Path]) -> List[str]:
     path = file if isinstance(file, Path) else Path(file)
@@ -26,7 +28,7 @@ def load_requirements(file: Union[str, Path]) -> List[str]:
 
 setup(
     name="unstructured-platform-plugins",
-    version="1.0.0",
+    version=__version__,
     python_requires=">=3.10,<3.13",
     url="https://github.com/Unstructured-IO/unstructured-platform-plugins",  # noqa: 501
     packages=find_packages(),
