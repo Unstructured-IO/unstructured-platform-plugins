@@ -64,7 +64,7 @@ def get_input_schema(func: Callable, omit: Optional[list[str]] = None) -> dict:
 def get_output_sig(func: Callable) -> Optional[Any]:
     inspect.signature(func)
     type_hints = get_type_hints(func)
-    return_typing = type_hints["return"]
+    return_typing = type_hints.get("return")
     outputs = return_typing if return_typing is not NoneType else None
     return outputs
 
@@ -85,7 +85,7 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
     # types expected by the function when being invoked
     raw_inputs = raw_inputs.copy()
     type_info = get_type_hints(func)
-    type_info.pop("return")
+    type_info.pop("return", None)
     for field_name, type_data in type_info.items():
         if field_name not in raw_inputs:
             continue
