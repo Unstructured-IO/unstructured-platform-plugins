@@ -4,7 +4,7 @@ from enum import Enum
 
 import pytest
 from pydantic import BaseModel
-from unstructured.ingest.v2.interfaces import FileData
+from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn import utils

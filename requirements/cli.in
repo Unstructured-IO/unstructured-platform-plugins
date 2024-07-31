@@ -1,4 +1,4 @@
 uvicorn
 fastapi
 click
-unstructured
+unstructured-ingest

@@ -1,6 +1,7 @@
 import inspect
 from dataclasses import is_dataclass
 from enum import EnumMeta
+from inspect import Parameter
 from types import GenericAlias, NoneType
 from typing import Any, Callable, Optional
 
@@ -58,6 +59,10 @@ def get_input_schema(func: Callable, omit: Optional[list[str]] = None) -> dict:
     parameters = get_typed_parameters(func)
     if omit:
         parameters = [p for p in parameters if p.name not in omit]
+    # Omit self if wrapping method
+    parameters = [
+        p for p in parameters if not (p.param_type is Parameter.empty and p.name == "self")
+    ]
     return parameters_to_json_schema(parameters)
 
 
