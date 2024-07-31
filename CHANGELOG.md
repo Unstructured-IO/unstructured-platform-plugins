@@ -1,3 +1,13 @@
+## 0.0.2
+
+### Enhancements
+
+### Features
+
+### Fixes
+
+* **FileData Literal not handled** FileData content was updated to use Literal rather than Enum. This case needed to be added. 
+
 ## 0.0.1
 
 ### Enhancements
