@@ -4,11 +4,11 @@ from enum import Enum, EnumMeta
 from inspect import Parameter
 from pathlib import Path
 from types import GenericAlias, NoneType, UnionType
-from typing import Any, Optional, Type, Union, _UnionGenericAlias
+from typing import Any, Literal, Optional, Type, Union, _UnionGenericAlias
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
-from unstructured.ingest.v2.interfaces import FileData
+from unstructured_ingest.v2.interfaces import FileData
 
 from unstructured_platform_plugins.schema.utils import TypedParameter
 from unstructured_platform_plugins.type_hints import get_type_hints
@@ -37,6 +37,13 @@ def is_typed_dict(val: Any) -> bool:
 
 
 def type_to_json_schema(t: Type, args: Optional[tuple[Any, ...]] = None) -> dict:
+    if t is Literal:
+        arg_types = [type(a) for a in args]
+        if len(set(arg_types)) != 1:
+            raise TypeError(
+                "Literal must be of a single type. Defined with: {}".format(", ".join(arg_types))
+            )
+        t = arg_types[0]
     resp = {"type": types_map[t]}
     if t is list and args:
         list_type = args[0]

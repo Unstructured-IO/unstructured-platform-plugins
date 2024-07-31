@@ -122,8 +122,8 @@ def generate_fast_api(
 
     else:
 
-        @fastapi_app.post("/invoke", response_model=response_type)
-        async def run_job() -> response_type:
+        @fastapi_app.post("/invoke", response_model=InvokeResponse)
+        async def run_job() -> InvokeResponse:
             logger.debug(f"invoking function without inputs: {func}")
             return await wrap_fn(
                 func=func,

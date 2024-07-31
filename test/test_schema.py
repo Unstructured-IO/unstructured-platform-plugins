@@ -7,7 +7,7 @@ from typing import Any, Optional, Union
 import pytest
 from pydantic import BaseModel
 from typing_extensions import TypedDict
-from unstructured.ingest.v2.interfaces import FileData
+from unstructured_ingest.v2.interfaces import FileData
 
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
@@ -507,7 +507,7 @@ def test_file_data():
                         ],
                         "default": None,
                     },
-                    "doc_type": {"type": "string", "enum": ["batch", "file"], "default": "file"},
+                    "doc_type": {"type": "string", "default": "file"},
                     "metadata": {
                         "type": "object",
                         "properties": {
@@ -599,7 +599,7 @@ def test_file_data():
                     ],
                     "default": None,
                 },
-                "doc_type": {"type": "string", "enum": ["batch", "file"], "default": "file"},
+                "doc_type": {"type": "string", "default": "file"},
                 "metadata": {
                     "type": "object",
                     "properties": {
