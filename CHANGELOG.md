@@ -1,3 +1,13 @@
+## 0.0.3
+
+### Enhancements
+
+### Features
+
+* **Add a new end point for plugins `/job_types`** This end points lists available job types for the plugin, which can be set in the plugin's settings when building a workflow to choose one of possible many options a plugin provides
+
+### Fixes
+
 ## 0.0.2
 
 ### Enhancements
