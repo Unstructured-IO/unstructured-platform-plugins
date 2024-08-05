@@ -148,6 +148,13 @@ def generate_fast_api(
         resp = SchemaOutputResponse(inputs=schema["inputs"], outputs=schema["outputs"])
         return resp
 
+    class JobTypesResponse(BaseModel):
+        job_types: list[str]
+
+    @fastapi_app.get("/job_types")
+    async def get_job_types() -> JobTypesResponse:
+        return JobTypesResponse(job_types=getattr(app, "available_job_types", []))
+
     @fastapi_app.get("/precheck")
     async def run_precheck() -> InvokePrecheckResponse:
         if precheck_func:
