@@ -4,8 +4,19 @@ from typing import Any, Literal, Optional, Union, get_args
 
 from pydantic import BaseModel, Field, ValidationError
 from typing_extensions import Annotated
+from unstructured_platform_plugins.schema.usage import UsageData
 
 AnnotatedType = type(Annotated[str, str])
+
+
+class InvokePrecheckResponse(BaseModel):
+    usage: list[UsageData]
+    status_code: int
+    status_code_text: Optional[str] = None
+
+
+class BaseInvokeResponse(InvokePrecheckResponse):
+    output: Optional[Union[dict, list[dict]]] = None
 
 
 class StringEntrySchema(BaseModel):

@@ -22,6 +22,7 @@ from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
 from unstructured_platform_plugins.schema.usage import UsageData
+from unstructured_platform_plugins.schema.model import BaseInvokeResponse, InvokePrecheckResponse
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -79,10 +80,7 @@ def generate_fast_api(
 
     response_type = get_output_sig(func)
 
-    class InvokeResponse(BaseModel):
-        usage: list[UsageData]
-        status_code: int
-        status_code_text: Optional[str] = None
+    class InvokeResponse(BaseInvokeResponse):
         output: Optional[response_type] = None
 
     input_schema = get_input_schema(func, omit=["usage"])
@@ -136,11 +134,6 @@ def generate_fast_api(
     @fastapi_app.get("/", include_in_schema=False)
     async def docs_redirect():
         return RedirectResponse("/docs")
-
-    class InvokePrecheckResponse(BaseModel):
-        usage: list[UsageData]
-        status_code: int
-        status_code_text: Optional[str] = None
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
