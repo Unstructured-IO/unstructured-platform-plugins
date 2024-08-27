@@ -1,3 +1,10 @@
+## 0.0.3
+
+### Features
+
+* **OTEL middleware added**
+
+
 ## 0.0.2
 
 ### Enhancements
