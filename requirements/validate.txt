@@ -4,13 +4,13 @@
 #
 #    pip-compile requirements//validate.in
 #
-certifi==2024.6.2
+certifi==2024.7.4
     # via requests
 charset-normalizer==3.3.2
     # via requests
 click==8.1.7
     # via -r requirements//validate.in
-idna==3.7
+idna==3.8
     # via requests
 requests==2.32.3
     # via -r requirements//validate.in
