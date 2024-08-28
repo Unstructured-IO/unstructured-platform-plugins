@@ -6,10 +6,12 @@ import logging
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, status
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from uvicorn.importer import import_from_string
 
+from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
 from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_func,
     get_input_schema,
@@ -169,5 +171,9 @@ def generate_fast_api(
         asyncio.run(get_schema())
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
+
+    FastAPIInstrumentor.instrument_app(
+        fastapi_app, tracer_provider=get_trace_provider(), meter_provider=get_metric_provider()
+    )
 
     return fastapi_app

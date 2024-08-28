@@ -2,3 +2,5 @@ uvicorn
 fastapi
 click
 unstructured-ingest
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp-proto-grpc

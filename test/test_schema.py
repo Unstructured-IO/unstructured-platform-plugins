@@ -554,6 +554,10 @@ def test_file_data():
                                 ],
                                 "default": None,
                             },
+                            "filesize_bytes": {
+                                "anyOf": [{"type": "integer"}, {"type": "null"}],
+                                "default": None,
+                            },
                         },
                         "required": [],
                     },
@@ -641,6 +645,10 @@ def test_file_data():
                                 },
                                 {"type": "null"},
                             ],
+                            "default": None,
+                        },
+                        "filesize_bytes": {
+                            "anyOf": [{"type": "integer"}, {"type": "null"}],
                             "default": None,
                         },
                     },
