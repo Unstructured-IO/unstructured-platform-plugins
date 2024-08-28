@@ -20,11 +20,16 @@ dataclasses-json==0.6.7
 deprecated==1.2.14
     # via
     #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-semantic-conventions
 exceptiongroup==1.2.2
     # via anyio
 fastapi==0.112.2
     # via -r requirements//cli.in
+googleapis-common-protos==1.65.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+grpcio==1.66.0
+    # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.14.0
     # via uvicorn
 idna==3.8
@@ -39,10 +44,16 @@ numpy==2.1.0
     # via pandas
 opentelemetry-api==1.26.0
     # via
+    #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-proto-common==1.26.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.26.0
+    # via -r requirements//cli.in
 opentelemetry-instrumentation==0.47b0
     # via
     #   opentelemetry-instrumentation-asgi
@@ -51,10 +62,19 @@ opentelemetry-instrumentation-asgi==0.47b0
     # via opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-fastapi==0.47b0
     # via -r requirements//cli.in
+opentelemetry-proto==1.26.0
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.26.0
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   unstructured-ingest
 opentelemetry-semantic-conventions==0.47b0
     # via
     #   opentelemetry-instrumentation-asgi
     #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-sdk
 opentelemetry-util-http==0.47b0
     # via
     #   opentelemetry-instrumentation-asgi
@@ -63,6 +83,10 @@ packaging==24.1
     # via marshmallow
 pandas==2.2.2
     # via unstructured-ingest
+protobuf==4.25.4
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
 pydantic==2.8.2
     # via
     #   fastapi
@@ -88,6 +112,7 @@ typing-extensions==4.12.2
     #   anyio
     #   asgiref
     #   fastapi
+    #   opentelemetry-sdk
     #   pydantic
     #   pydantic-core
     #   typing-inspect
@@ -96,7 +121,7 @@ typing-inspect==0.9.0
     # via dataclasses-json
 tzdata==2024.1
     # via pandas
-unstructured-ingest==0.0.6
+unstructured-ingest==0.0.8
     # via -r requirements//cli.in
 uvicorn==0.30.6
     # via -r requirements//cli.in
