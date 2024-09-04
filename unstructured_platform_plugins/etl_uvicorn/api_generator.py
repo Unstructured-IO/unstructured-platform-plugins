@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import inspect
+from functools import partial
 import json
 import logging
 from typing import Any, Callable, Optional
@@ -31,7 +32,7 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
     if inspect.iscoroutinefunction(func):
         return await func(**kwargs)
     else:
-        return func(**kwargs)
+        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
 
 
 def check_precheck_func(precheck_func: Callable):

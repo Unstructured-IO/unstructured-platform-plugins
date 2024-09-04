@@ -1,3 +1,9 @@
+## 0.0.3
+
+### Fixes
+
+* Do not block event loop when running plugin code
+
 ## 0.0.2
 
 ### Enhancements
