@@ -1,9 +1,14 @@
+## 0.0.4
+
+### Fixes
+
+* Do not block event loop when running plugin code
+
 ## 0.0.3
 
 ### Features
 
 * **OTEL middleware added**
-
 
 ## 0.0.2
 
