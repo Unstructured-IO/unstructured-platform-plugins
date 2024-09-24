@@ -1,8 +1,12 @@
+## 0.0.5
+
+* **Improve logging to hide body in case of sensitive data unless TRACE level**
+
 ## 0.0.4
 
 ### Fixes
 
-* Do not block event loop when running plugin code
+* **Do not block event loop when running plugin code**
 
 ## 0.0.3
 
