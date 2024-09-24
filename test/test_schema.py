@@ -566,6 +566,10 @@ def test_file_data():
                         "items": {"key": {"type": "string"}, "value": {}},
                     },
                     "reprocess": {"type": "boolean", "default": False},
+                    "local_download_path": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "default": None,
+                    },
                 },
                 "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
             }
@@ -659,6 +663,10 @@ def test_file_data():
                     "items": {"key": {"type": "string"}, "value": {}},
                 },
                 "reprocess": {"type": "boolean", "default": False},
+                "local_download_path": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                },
             },
             "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
         },

@@ -1,1 +1,1 @@
-unstructured-ingest==0.0.8
+unstructured-ingest>=0.0.18
