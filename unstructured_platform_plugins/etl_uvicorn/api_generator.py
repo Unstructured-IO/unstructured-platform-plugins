@@ -113,7 +113,7 @@ def generate_fast_api(
 
     logger.debug(f"set static id response to: {plugin_id}")
 
-    fastapi_app = FastAPI(debug=True)
+    fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
 
