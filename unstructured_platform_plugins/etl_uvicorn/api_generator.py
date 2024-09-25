@@ -1,10 +1,12 @@
 import asyncio
+from fastapi.responses import StreamingResponse
 import hashlib
 import inspect
 import json
 import logging
 from functools import partial
 from typing import Any, Callable, Optional
+import inspect
 
 from fastapi import FastAPI, status
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -26,6 +28,7 @@ from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
 from unstructured_platform_plugins.schema.usage import UsageData
+import concurrent.futures
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -46,12 +49,29 @@ def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
         logger.log(level=logger.level, msg=msg)
 
 
+async def run_generator_in_executor(generator_func, **kwargs):
+    loop = asyncio.get_event_loop()
+    # Create a future that will yield the generator values one by one
+    gen = generator_func(**kwargs)
+    while True:
+        result = await loop.run_in_executor(None, next, gen, None)
+        if result is None:
+            break
+        yield result
+
+
 async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
     kwargs = kwargs or {}
-    if inspect.iscoroutinefunction(func):
-        return await func(**kwargs)
+    if inspect.isasyncgenfunction(func):
+        async for val in func(**kwargs):
+            yield val
+    elif inspect.isgeneratorfunction(func):
+        async for val in run_generator_in_executor(func, **kwargs):
+            yield val
+    elif inspect.iscoroutinefunction(func):
+        yield await func(**kwargs)
     else:
-        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
+        yield await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
 
 
 def check_precheck_func(precheck_func: Callable):
@@ -95,7 +115,7 @@ def generate_fast_api(
 
     logger.debug(f"set static id response to: {plugin_id}")
 
-    fastapi_app = FastAPI()
+    fastapi_app = FastAPI(debug=True)
 
     response_type = get_output_sig(func)
 
@@ -118,8 +138,14 @@ def generate_fast_api(
         else:
             logger.warning("usage data not an expected parameter, omitting")
         try:
-            output = await invoke_func(func=func, kwargs=request_dict)
-            return InvokeResponse(usage=usage, status_code=status.HTTP_200_OK, output=output)
+
+            async def _stream_response():
+                async for output in invoke_func(func=func, kwargs=request_dict):
+                    yield InvokeResponse(
+                        usage=usage, status_code=status.HTTP_200_OK, output=output
+                    ).model_dump_json() + "\n"
+
+            return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
