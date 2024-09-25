@@ -1,14 +1,13 @@
 import asyncio
-from fastapi.responses import StreamingResponse
 import hashlib
 import inspect
 import json
 import logging
 from functools import partial
 from typing import Any, Callable, Optional
-import inspect
 
 from fastapi import FastAPI, status
+from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
@@ -28,7 +27,6 @@ from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
 from unstructured_platform_plugins.schema.usage import UsageData
-import concurrent.futures
 
 logger = logging.getLogger("uvicorn.error")
 
