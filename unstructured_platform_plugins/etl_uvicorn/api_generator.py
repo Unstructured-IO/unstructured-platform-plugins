@@ -56,9 +56,9 @@ async def invoke_async_gen_func(func: Callable, kwargs: Optional[dict[str, Any]]
 async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
     kwargs = kwargs or {}
     if inspect.iscoroutinefunction(func):
-        yield await func(**kwargs)
+        return await func(**kwargs)
     else:
-        yield await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
+        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
 
 
 def check_precheck_func(precheck_func: Callable):
