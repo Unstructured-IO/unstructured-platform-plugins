@@ -67,30 +67,11 @@ def check_precheck_func(precheck_func: Callable):
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
 
 
-def generate_fast_api(
-    app: str,
-    method_name: Optional[str] = None,
-    id_str: Optional[str] = None,
-    id_method: Optional[str] = None,
-    precheck_str: Optional[str] = None,
-    precheck_method: Optional[str] = None,
-) -> FastAPI:
-    instance = import_from_string(app)
-    func = get_func(instance, method_name)
-    if id_str:
-        id_ref = import_from_string(id_str)
-        plugin_id = get_plugin_id(instance=id_ref, method_name=id_method)
-    else:
-        plugin_id = hashlib.sha256(
-            json.dumps(get_schema_dict(func), sort_keys=True).encode()
-        ).hexdigest()[:32]
-
-    precheck_func = None
-    if precheck_str:
-        precheck_instance = import_from_string(precheck_str)
-        precheck_func = get_func(precheck_instance, precheck_method)
-    elif precheck_method:
-        precheck_func = get_func(instance, precheck_method)
+def wrap_in_fastapi(
+    func: Callable,
+    plugin_id: str,
+    precheck_func: Optional[Callable] = None,
+):
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
 
@@ -210,3 +191,31 @@ def generate_fast_api(
     )
 
     return fastapi_app
+
+
+def generate_fast_api(
+    app: str,
+    method_name: Optional[str] = None,
+    id_str: Optional[str] = None,
+    id_method: Optional[str] = None,
+    precheck_str: Optional[str] = None,
+    precheck_method: Optional[str] = None,
+) -> FastAPI:
+    instance = import_from_string(app)
+    func = get_func(instance, method_name)
+    if id_str:
+        id_ref = import_from_string(id_str)
+        plugin_id = get_plugin_id(instance=id_ref, method_name=id_method)
+    else:
+        plugin_id = hashlib.sha256(
+            json.dumps(get_schema_dict(func), sort_keys=True).encode()
+        ).hexdigest()[:32]
+
+    precheck_func = None
+    if precheck_str:
+        precheck_instance = import_from_string(precheck_str)
+        precheck_func = get_func(precheck_instance, precheck_method)
+    elif precheck_method:
+        precheck_func = get_func(instance, precheck_method)
+
+    return wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)

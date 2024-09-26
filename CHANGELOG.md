@@ -1,3 +1,7 @@
+## 0.0.7
+
+* **Improve code separation to help with unit tests**
+
 ## 0.0.6
 
 * **Support streaming response types for /invoke if callable is async generator**
