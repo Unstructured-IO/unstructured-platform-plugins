@@ -47,12 +47,6 @@ def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
         logger.log(level=logger.level, msg=msg)
 
 
-async def invoke_async_gen_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
-    kwargs = kwargs or {}
-    async for val in func(**kwargs):
-        yield val
-
-
 async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
     kwargs = kwargs or {}
     if inspect.iscoroutinefunction(func):
@@ -129,7 +123,7 @@ def generate_fast_api(
                 # Stream response if function is an async generator
 
                 async def _stream_response():
-                    async for output in invoke_async_gen_func(func=func, kwargs=request_dict):
+                    async for output in func(**(request_dict or {})):
                         yield InvokeResponse(
                             usage=usage, status_code=status.HTTP_200_OK, output=output
                         ).model_dump_json() + "\n"
