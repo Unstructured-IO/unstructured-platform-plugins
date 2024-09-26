@@ -136,11 +136,8 @@ def generate_fast_api(
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                return InvokeResponse(
-                    usage=usage,
-                    status_code=status.HTTP_200_OK,
-                    output=await invoke_func(func, request_dict),
-                )
+                output = await invoke_func(func=func, kwargs=request_dict)
+                return InvokeResponse(usage=usage, status_code=status.HTTP_200_OK, output=output)
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
