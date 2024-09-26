@@ -1,3 +1,7 @@
+## 0.0.6
+
+* **Support streaming response types for /invoke if callable is async generator**
+
 ## 0.0.5
 
 * **Improve logging to hide body in case of sensitive data unless TRACE level**
