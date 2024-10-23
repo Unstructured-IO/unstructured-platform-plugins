@@ -1,3 +1,8 @@
+## 0.0.8
+
+* **reduce usage data log level** We do not want to have so much verbosity for something that might happen a lot
+* **Support unrecoverable errors** Throw a 512 error for an unrecoverable error
+
 ## 0.0.7
 
 * **Improve code separation to help with unit tests**
