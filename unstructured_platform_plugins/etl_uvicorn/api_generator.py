@@ -23,6 +23,7 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
+from unstructured_platform_plugins.exceptions import UnrecoverableException
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
@@ -100,7 +101,7 @@ def wrap_in_fastapi(
         if "usage" in inspect.signature(func).parameters:
             request_dict["usage"] = usage
         else:
-            logger.warning("usage data not an expected parameter, omitting")
+            logger.debug("usage data not an expected parameter, omitting")
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
@@ -113,8 +114,15 @@ def wrap_in_fastapi(
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                output = await invoke_func(func=func, kwargs=request_dict)
-                return InvokeResponse(usage=usage, status_code=status.HTTP_200_OK, output=output)
+                try:
+                    output = await invoke_func(func=func, kwargs=request_dict)
+                    return InvokeResponse(
+                        usage=usage, status_code=status.HTTP_200_OK, output=output
+                    )
+                except UnrecoverableException as ex:
+                    # Thrower of this exception is responsible for logging necessary information
+                    logger.info("Unrecoverable error occurred during plugin invocation")
+                    return InvokeResponse(usage=usage, status_code=512, status_code_text=ex.message)
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
