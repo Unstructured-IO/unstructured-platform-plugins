@@ -23,11 +23,10 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
-from unstructured_platform_plugins.exceptions import UnrecoverableException
+from unstructured_platform_plugins.schema import FileDataMeta, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
-from unstructured_platform_plugins.schema.usage import UsageData
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -85,10 +84,11 @@ def wrap_in_fastapi(
     class InvokeResponse(BaseModel):
         usage: list[UsageData]
         status_code: int
+        filedata_meta: FileDataMeta
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
 
-    input_schema = get_input_schema(func, omit=["usage"])
+    input_schema = get_input_schema(func, omit=["usage", "filedata_meta"])
     input_schema_model = schema_to_base_model(input_schema)
 
     logging.getLogger("etl_uvicorn.fastapi")
@@ -97,11 +97,14 @@ def wrap_in_fastapi(
 
     async def wrap_fn(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> ResponseType:
         usage: list[UsageData] = []
+        filedata_meta = FileDataMeta()
         request_dict = kwargs if kwargs else {}
         if "usage" in inspect.signature(func).parameters:
             request_dict["usage"] = usage
         else:
-            logger.debug("usage data not an expected parameter, omitting")
+            logger.warning("usage data not an expected parameter, omitting")
+        if "filedata_meta" in inspect.signature(func).parameters:
+            request_dict["filedata_meta"] = filedata_meta
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
@@ -109,24 +112,26 @@ def wrap_in_fastapi(
                 async def _stream_response():
                     async for output in func(**(request_dict or {})):
                         yield InvokeResponse(
-                            usage=usage, status_code=status.HTTP_200_OK, output=output
+                            usage=usage,
+                            filedata_meta=filedata_meta,
+                            status_code=status.HTTP_200_OK,
+                            output=output,
                         ).model_dump_json() + "\n"
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                try:
-                    output = await invoke_func(func=func, kwargs=request_dict)
-                    return InvokeResponse(
-                        usage=usage, status_code=status.HTTP_200_OK, output=output
-                    )
-                except UnrecoverableException as ex:
-                    # Thrower of this exception is responsible for logging necessary information
-                    logger.info("Unrecoverable error occurred during plugin invocation")
-                    return InvokeResponse(usage=usage, status_code=512, status_code_text=ex.message)
+                output = await invoke_func(func=func, kwargs=request_dict)
+                return InvokeResponse(
+                    usage=usage,
+                    filedata_meta=filedata_meta,
+                    status_code=status.HTTP_200_OK,
+                    output=output,
+                )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
                 usage=usage,
+                filedata_meta=filedata_meta,
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"failed to invoke plugin: "
                 f"[{invoke_error.__class__.__name__}] {invoke_error}",

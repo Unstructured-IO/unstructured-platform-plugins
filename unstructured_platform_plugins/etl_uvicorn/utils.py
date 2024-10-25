@@ -111,10 +111,8 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
                 and not isinstance(type_data, GenericAlias)
                 and issubclass(type_data, BaseModel)
             ):
-                raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
+                field_value = raw_inputs[field_name]
+                raw_inputs[field_name] = type_data.model_validate(field_value.model_dump())
         except Exception as e:
-            exception_type = type(e)
-            raise exception_type(
-                f"failed to map input for field {field_name}: {field_value}"
-            ) from e
+            raise ValueError(f"failed to map input for field {field_name}: {field_value}") from e
     return raw_inputs

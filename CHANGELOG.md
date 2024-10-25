@@ -1,3 +1,7 @@
+## 0.0.9
+
+* **Support optionally exposing addition metadata around FileData**
+
 ## 0.0.8
 
 * **reduce usage data log level** We do not want to have so much verbosity for something that might happen a lot

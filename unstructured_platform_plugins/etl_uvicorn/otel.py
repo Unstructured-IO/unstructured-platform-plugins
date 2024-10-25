@@ -42,7 +42,6 @@ def get_settings() -> OtelSettings:
 
 def get_trace_provider() -> TracerProvider:
     settings = get_settings()
-    print(settings)
     provider = TracerProvider(resource=Resource({SERVICE_NAME: settings["service_name"]}))
 
     for trace_exporter_type in settings["trace_exporters"]:
