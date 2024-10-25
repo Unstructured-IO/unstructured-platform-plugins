@@ -112,7 +112,9 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
                 and issubclass(type_data, BaseModel)
             ):
                 field_value = raw_inputs[field_name]
-                raw_inputs[field_name] = type_data.model_validate(field_value.model_dump())
+                if isinstance(field_value, BaseModel):
+                    field_value = field_value.model_dump()
+                raw_inputs[field_name] = type_data.model_validate(field_value)
         except Exception as e:
             raise ValueError(f"failed to map input for field {field_name}: {field_value}") from e
     return raw_inputs

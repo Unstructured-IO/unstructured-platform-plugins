@@ -136,5 +136,5 @@ def test_map_inputs_error():
 
     inputs = {"a": {"not": "the", "right": "values"}}
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         utils.map_inputs(func=fn, raw_inputs=inputs)

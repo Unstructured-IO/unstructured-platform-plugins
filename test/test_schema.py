@@ -560,10 +560,64 @@ def test_file_data():
                             },
                         },
                         "required": [],
+                        "default": {
+                            "type": "object",
+                            "properties": {
+                                "url": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                                "version": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                                "record_locator": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "items": {"key": {"type": "string"}, "value": {}},
+                                        },
+                                        {"type": "null"},
+                                    ],
+                                    "default": None,
+                                },
+                                "date_created": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                                "date_modified": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                                "date_processed": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                                "permissions_data": {
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "items": {"key": {"type": "string"}, "value": {}},
+                                            },
+                                        },
+                                        {"type": "null"},
+                                    ],
+                                    "default": None,
+                                },
+                                "filesize_bytes": {
+                                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                                    "default": None,
+                                },
+                            },
+                            "required": [],
+                        },
                     },
                     "additional_metadata": {
                         "type": "object",
                         "items": {"key": {"type": "string"}, "value": {}},
+                        "default": {},
                     },
                     "reprocess": {"type": "boolean", "default": False},
                     "local_download_path": {
@@ -571,7 +625,7 @@ def test_file_data():
                         "default": None,
                     },
                 },
-                "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
+                "required": ["identifier", "connector_type"],
             }
         },
     }
@@ -657,10 +711,64 @@ def test_file_data():
                         },
                     },
                     "required": [],
+                    "default": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "version": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "record_locator": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "items": {"key": {"type": "string"}, "value": {}},
+                                    },
+                                    {"type": "null"},
+                                ],
+                                "default": None,
+                            },
+                            "date_created": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "date_modified": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "date_processed": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "permissions_data": {
+                                "anyOf": [
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "items": {"key": {"type": "string"}, "value": {}},
+                                        },
+                                    },
+                                    {"type": "null"},
+                                ],
+                                "default": None,
+                            },
+                            "filesize_bytes": {
+                                "anyOf": [{"type": "integer"}, {"type": "null"}],
+                                "default": None,
+                            },
+                        },
+                        "required": [],
+                    },
                 },
                 "additional_metadata": {
                     "type": "object",
                     "items": {"key": {"type": "string"}, "value": {}},
+                    "default": {},
                 },
                 "reprocess": {"type": "boolean", "default": False},
                 "local_download_path": {
@@ -668,9 +776,8 @@ def test_file_data():
                     "default": None,
                 },
             },
-            "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
+            "required": ["identifier", "connector_type"],
         },
     }
-
     assert output_schema == expected_output_schema
     assert is_valid_response_dict(output_schema)
