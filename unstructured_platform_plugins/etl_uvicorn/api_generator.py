@@ -4,12 +4,12 @@ import inspect
 import json
 import logging
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from fastapi import FastAPI, status
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
@@ -23,7 +23,7 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
-from unstructured_platform_plugins.schema import FileDataMeta, UsageData
+from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
@@ -67,6 +67,30 @@ def check_precheck_func(precheck_func: Callable):
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
 
 
+def is_optional(t: Any) -> bool:
+    return (
+        hasattr(t, "__origin__")
+        and t.__origin__ is Union
+        and hasattr(t, "__args__")
+        and type(None) in t.__args__
+    )
+
+
+def update_filedata_model(new_type) -> BaseModel:
+    field_info = NewRecord.model_fields["contents"]
+    if is_optional(new_type):
+        field_info.default = None
+    new_record_model = create_model(
+        NewRecord.__name__, contents=(new_type, field_info), __base__=NewRecord
+    )
+    new_filedata_model = create_model(
+        FileDataMeta.__name__,
+        new_records=(list[new_record_model], Field(default_factory=list)),
+        __base__=FileDataMeta,
+    )
+    return new_filedata_model
+
+
 def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
@@ -80,11 +104,12 @@ def wrap_in_fastapi(
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
+    filedata_meta_model = update_filedata_model(response_type)
 
     class InvokeResponse(BaseModel):
         usage: list[UsageData]
         status_code: int
-        filedata_meta: FileDataMeta
+        filedata_meta: filedata_meta_model
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
 
@@ -113,7 +138,9 @@ def wrap_in_fastapi(
                     async for output in func(**(request_dict or {})):
                         yield InvokeResponse(
                             usage=usage,
-                            filedata_meta=filedata_meta,
+                            filedata_meta=filedata_meta_model.model_validate(
+                                filedata_meta.model_dump()
+                            ),
                             status_code=status.HTTP_200_OK,
                             output=output,
                         ).model_dump_json() + "\n"
@@ -123,7 +150,7 @@ def wrap_in_fastapi(
                 output = await invoke_func(func=func, kwargs=request_dict)
                 return InvokeResponse(
                     usage=usage,
-                    filedata_meta=filedata_meta,
+                    filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                     status_code=status.HTTP_200_OK,
                     output=output,
                 )
@@ -131,7 +158,7 @@ def wrap_in_fastapi(
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
                 usage=usage,
-                filedata_meta=filedata_meta,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"failed to invoke plugin: "
                 f"[{invoke_error.__class__.__name__}] {invoke_error}",

@@ -16,6 +16,10 @@ from unstructured_platform_plugins.schema.utils import get_typed_parameters
 from unstructured_platform_plugins.type_hints import get_type_hints
 
 
+def is_optional(t: Any) -> bool:
+    return hasattr(t, "__origin__") and t.__origin__ is not None
+
+
 def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:
     method_name = method_name or "__call__"
     if inspect.isfunction(instance):
