@@ -16,6 +16,10 @@ from unstructured_platform_plugins.schema.utils import get_typed_parameters
 from unstructured_platform_plugins.type_hints import get_type_hints
 
 
+def is_optional(t: Any) -> bool:
+    return hasattr(t, "__origin__") and t.__origin__ is not None
+
+
 def get_func(instance: Any, method_name: Optional[str] = None) -> Callable:
     method_name = method_name or "__call__"
     if inspect.isfunction(instance):
@@ -111,10 +115,10 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
                 and not isinstance(type_data, GenericAlias)
                 and issubclass(type_data, BaseModel)
             ):
-                raw_inputs[field_name] = type_data.model_validate(raw_inputs[field_name])
+                field_value = raw_inputs[field_name]
+                if isinstance(field_value, BaseModel):
+                    field_value = field_value.model_dump()
+                raw_inputs[field_name] = type_data.model_validate(field_value)
         except Exception as e:
-            exception_type = type(e)
-            raise exception_type(
-                f"failed to map input for field {field_name}: {field_value}"
-            ) from e
+            raise ValueError(f"failed to map input for field {field_name}: {field_value}") from e
     return raw_inputs

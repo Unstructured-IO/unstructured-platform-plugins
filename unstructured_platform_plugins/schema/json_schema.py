@@ -113,6 +113,12 @@ def dataclass_to_json_schema(class_or_instance: Any) -> dict:
         f_resp = to_json_schema(t)
         if f.default is not MISSING:
             f_resp["default"] = f.default.value if isinstance(f.default, Enum) else f.default
+        elif f.default_factory is not MISSING:
+            default = f.default_factory()
+            try:
+                f_resp["default"] = to_json_schema(default)
+            except Exception:
+                f_resp["default"] = default
         else:
             required.append(f.name)
         properties[f.name] = f_resp
@@ -339,6 +345,10 @@ def schema_to_base_model(schema: dict, name: str = "reconstructed_model") -> Typ
                 t = schema_to_base_model_type(
                     json_type_name=json_type_name, name=k, type_info=entry_info
                 )
+        elif "properties" in v:
+            t = schema_to_base_model(schema=v, name=k)
+        elif not v:
+            t = schema_to_base_model(schema={"type": "null"}, name=k)
         else:
             json_type_name = v["type"]
             t = schema_to_base_model_type(json_type_name=json_type_name, name=k, type_info=v)

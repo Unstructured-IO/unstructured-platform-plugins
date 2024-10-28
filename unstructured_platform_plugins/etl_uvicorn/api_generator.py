@@ -4,13 +4,14 @@ import inspect
 import json
 import logging
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from fastapi import FastAPI, status
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
+from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -23,11 +24,10 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
-from unstructured_platform_plugins.exceptions import UnrecoverableException
+from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
-from unstructured_platform_plugins.schema.usage import UsageData
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -68,6 +68,30 @@ def check_precheck_func(precheck_func: Callable):
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
 
 
+def is_optional(t: Any) -> bool:
+    return (
+        hasattr(t, "__origin__")
+        and t.__origin__ is Union
+        and hasattr(t, "__args__")
+        and type(None) in t.__args__
+    )
+
+
+def update_filedata_model(new_type) -> BaseModel:
+    field_info = NewRecord.model_fields["contents"]
+    if is_optional(new_type):
+        field_info.default = None
+    new_record_model = create_model(
+        NewRecord.__name__, contents=(new_type, field_info), __base__=NewRecord
+    )
+    new_filedata_model = create_model(
+        FileDataMeta.__name__,
+        new_records=(list[new_record_model], Field(default_factory=list)),
+        __base__=FileDataMeta,
+    )
+    return new_filedata_model
+
+
 def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
@@ -81,14 +105,16 @@ def wrap_in_fastapi(
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
+    filedata_meta_model = update_filedata_model(response_type)
 
     class InvokeResponse(BaseModel):
         usage: list[UsageData]
         status_code: int
+        filedata_meta: filedata_meta_model
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
 
-    input_schema = get_input_schema(func, omit=["usage"])
+    input_schema = get_input_schema(func, omit=["usage", "filedata_meta"])
     input_schema_model = schema_to_base_model(input_schema)
 
     logging.getLogger("etl_uvicorn.fastapi")
@@ -97,11 +123,14 @@ def wrap_in_fastapi(
 
     async def wrap_fn(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> ResponseType:
         usage: list[UsageData] = []
+        filedata_meta = FileDataMeta()
         request_dict = kwargs if kwargs else {}
         if "usage" in inspect.signature(func).parameters:
             request_dict["usage"] = usage
         else:
-            logger.debug("usage data not an expected parameter, omitting")
+            logger.warning("usage data not an expected parameter, omitting")
+        if "filedata_meta" in inspect.signature(func).parameters:
+            request_dict["filedata_meta"] = filedata_meta
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
@@ -109,24 +138,28 @@ def wrap_in_fastapi(
                 async def _stream_response():
                     async for output in func(**(request_dict or {})):
                         yield InvokeResponse(
-                            usage=usage, status_code=status.HTTP_200_OK, output=output
+                            usage=usage,
+                            filedata_meta=filedata_meta_model.model_validate(
+                                filedata_meta.model_dump()
+                            ),
+                            status_code=status.HTTP_200_OK,
+                            output=output,
                         ).model_dump_json() + "\n"
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                try:
-                    output = await invoke_func(func=func, kwargs=request_dict)
-                    return InvokeResponse(
-                        usage=usage, status_code=status.HTTP_200_OK, output=output
-                    )
-                except UnrecoverableException as ex:
-                    # Thrower of this exception is responsible for logging necessary information
-                    logger.info("Unrecoverable error occurred during plugin invocation")
-                    return InvokeResponse(usage=usage, status_code=512, status_code_text=ex.message)
+                output = await invoke_func(func=func, kwargs=request_dict)
+                return InvokeResponse(
+                    usage=usage,
+                    filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                    status_code=status.HTTP_200_OK,
+                    output=output,
+                )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
                 usage=usage,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"failed to invoke plugin: "
                 f"[{invoke_error.__class__.__name__}] {invoke_error}",
@@ -139,6 +172,11 @@ def wrap_in_fastapi(
             log_func_and_body(func=func, body=request.json())
             # Create dictionary from pydantic model while preserving underlying types
             request_dict = {f: getattr(request, f) for f in request.model_fields}
+            # Map FileData back to original dataclass if present
+            if "file_data" in request_dict:
+                request_dict["file_data"] = FileData.from_dict(
+                    request_dict["file_data"].model_dump()
+                )
             map_inputs(func=func, raw_inputs=request_dict)
             if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
                 logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
