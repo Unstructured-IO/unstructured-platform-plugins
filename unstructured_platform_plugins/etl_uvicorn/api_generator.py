@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
+from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -171,6 +172,11 @@ def wrap_in_fastapi(
             log_func_and_body(func=func, body=request.json())
             # Create dictionary from pydantic model while preserving underlying types
             request_dict = {f: getattr(request, f) for f in request.model_fields}
+            # Map FileData back to original dataclass if present
+            if "file_data" in request_dict:
+                request_dict["file_data"] = FileData.from_dict(
+                    request_dict["file_data"].model_dump()
+                )
             map_inputs(func=func, raw_inputs=request_dict)
             if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
                 logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
