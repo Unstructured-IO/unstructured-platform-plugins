@@ -81,6 +81,9 @@ def update_filedata_model(new_type) -> BaseModel:
     field_info = NewRecord.model_fields["contents"]
     if is_optional(new_type):
         field_info.default = None
+    if new_type is None:
+        new_type = type(None)
+        field_info.default = None
     new_record_model = create_model(
         NewRecord.__name__, contents=(new_type, field_info), __base__=NewRecord
     )
