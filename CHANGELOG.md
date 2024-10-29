@@ -1,3 +1,7 @@
+## 0.0.10
+
+* **Bugfix: Add `None` support in mapping `FileDataMeta` response**
+
 ## 0.0.9
 
 * **Support optionally exposing addition metadata around FileData**
