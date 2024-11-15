@@ -1,3 +1,6 @@
+## 0.0.11
+* Initialize UnrecoverableException for importing
+
 ## 0.0.10
 
 * **Bugfix: Add `None` support in mapping `FileDataMeta` response**
