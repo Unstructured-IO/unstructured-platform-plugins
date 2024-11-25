@@ -14,6 +14,7 @@ from starlette.responses import RedirectResponse
 from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
+from unstructured_platform_plugins.exceptions import UnrecoverableException
 
 from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
 from unstructured_platform_plugins.etl_uvicorn.utils import (
@@ -158,6 +159,9 @@ def wrap_in_fastapi(
                     status_code=status.HTTP_200_OK,
                     output=output,
                 )
+        except UnrecoverableException as ex:
+            logger.info("Unrecoverable error occurred during plugin invocation")
+            return InvokeResponse(usage=usage, status_code=512, status_code_text=ex.message)
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(

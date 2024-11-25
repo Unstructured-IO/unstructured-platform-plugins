@@ -1,3 +1,7 @@
+## 0.0.11
+
+* **Bugfix: Add UnrecoverableException exception handling back**
+
 ## 0.0.10
 
 * **Bugfix: Add `None` support in mapping `FileDataMeta` response**
