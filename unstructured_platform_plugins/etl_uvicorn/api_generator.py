@@ -14,7 +14,6 @@ from starlette.responses import RedirectResponse
 from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
-from unstructured_platform_plugins.exceptions import UnrecoverableException
 
 from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
 from unstructured_platform_plugins.etl_uvicorn.utils import (
@@ -25,6 +24,7 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
+from unstructured_platform_plugins.exceptions import UnrecoverableException
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
