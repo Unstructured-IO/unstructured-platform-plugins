@@ -1,3 +1,7 @@
+## 0.0.12
+
+* **Bugfix: Fix UnrecoverableException exception handling to include full response**
+
 ## 0.0.11
 
 * **Bugfix: Add UnrecoverableException exception handling back**

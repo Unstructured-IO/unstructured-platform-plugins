@@ -161,7 +161,12 @@ def wrap_in_fastapi(
                 )
         except UnrecoverableException as ex:
             logger.info("Unrecoverable error occurred during plugin invocation")
-            return InvokeResponse(usage=usage, status_code=512, status_code_text=ex.message)
+            return InvokeResponse(
+                usage=usage,
+                status_code=512,
+                status_code_text=ex.message,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+            )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
             return InvokeResponse(
