@@ -1,3 +1,7 @@
+## 0.0.13
+
+* **Conform to PEP-625 compliance for project naming**
+
 ## 0.0.12
 
 * **Bugfix: Fix UnrecoverableException exception handling to include full response**
