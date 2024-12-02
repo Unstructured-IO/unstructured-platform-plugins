@@ -47,7 +47,7 @@ def load_requirements(file: Union[str, Path]) -> List[str]:
 
 
 setup(
-    name="unstructured-platform-plugins",
+    name="unstructured_platform_plugins",
     version=__version__,
     description="A utility library that provides tools around unstructured plugin development",
     long_description=open("README.md", encoding="utf-8").read(),  # noqa: SIM115
