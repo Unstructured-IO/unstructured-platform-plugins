@@ -1,7 +1,6 @@
 import inspect
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any, Optional, Union
 
 import pytest
@@ -10,7 +9,6 @@ from typing_extensions import TypedDict
 from unstructured_ingest.v2.interfaces import FileData
 
 import unstructured_platform_plugins.schema.json_schema as js
-from unstructured_platform_plugins.etl_uvicorn.utils import get_input_schema
 from unstructured_platform_plugins.schema.model import is_valid_input_dict, is_valid_response_dict
 from unstructured_platform_plugins.schema.utils import get_typed_parameters
 from unstructured_platform_plugins.type_hints import get_type_hints
@@ -395,44 +393,6 @@ def test_nested_complex_types():
     assert is_valid_input_dict(input_schema)
 
 
-def test_schema_to_base_model():
-    class g_enum(Enum):
-        FIRST = "first"
-        SECOND = "second"
-        THIRD = "third"
-
-    def fn(
-        a: int,
-        b: float | int = 4,
-        c: str | None = "my_string",
-        d: bool = False,
-        e: Optional[dict[str, Any]] = None,
-        f: list[float] = None,
-        g: Optional[g_enum] = None,
-        h: FileData | None = None,
-        i: Path | None = None,
-    ) -> None:
-        pass
-
-    class ExpectedInputModel(BaseModel):
-        a: int
-        b: Union[float, int] = 4
-        c: str | None = "my_string"
-        d: bool = False
-        e: Optional[dict[str, Any]] = None
-        f: list[float] = None
-        g: Optional[g_enum] = None
-        h: FileData | None = None
-        i: Path | None = None
-
-    input_schema = get_input_schema(fn)
-    input_model = js.schema_to_base_model(schema=input_schema)
-    input_model_schema = input_model.model_json_schema()
-    expected_model_schema = ExpectedInputModel.model_json_schema()
-    expected_model_schema["title"] = "reconstructed_model"
-    assert input_model_schema == expected_model_schema
-
-
 # These need to be defined outside the code of test_forward_reference_typing
 # for references to resolve:
 @dataclass
@@ -485,7 +445,6 @@ def test_file_data():
         "properties": {
             "a": {
                 "type": "object",
-                "is_file_data": True,
                 "properties": {
                     "identifier": {"type": "string"},
                     "connector_type": {"type": "string"},
@@ -507,7 +466,6 @@ def test_file_data():
                         ],
                         "default": None,
                     },
-                    "doc_type": {"type": "string", "default": "file"},
                     "metadata": {
                         "type": "object",
                         "properties": {
@@ -560,72 +518,22 @@ def test_file_data():
                             },
                         },
                         "required": [],
-                        "default": {
-                            "type": "object",
-                            "properties": {
-                                "url": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                                "version": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                                "record_locator": {
-                                    "anyOf": [
-                                        {
-                                            "type": "object",
-                                            "items": {"key": {"type": "string"}, "value": {}},
-                                        },
-                                        {"type": "null"},
-                                    ],
-                                    "default": None,
-                                },
-                                "date_created": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                                "date_modified": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                                "date_processed": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                                "permissions_data": {
-                                    "anyOf": [
-                                        {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "items": {"key": {"type": "string"}, "value": {}},
-                                            },
-                                        },
-                                        {"type": "null"},
-                                    ],
-                                    "default": None,
-                                },
-                                "filesize_bytes": {
-                                    "anyOf": [{"type": "integer"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                            },
-                            "required": [],
-                        },
                     },
                     "additional_metadata": {
                         "type": "object",
                         "items": {"key": {"type": "string"}, "value": {}},
-                        "default": {},
                     },
                     "reprocess": {"type": "boolean", "default": False},
                     "local_download_path": {
                         "anyOf": [{"type": "string"}, {"type": "null"}],
                         "default": None,
                     },
+                    "display_name": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "default": None,
+                    },
                 },
-                "required": ["identifier", "connector_type"],
+                "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
             }
         },
     }
@@ -639,7 +547,6 @@ def test_file_data():
         "type": "array",
         "items": {
             "type": "object",
-            "is_file_data": True,
             "properties": {
                 "identifier": {"type": "string"},
                 "connector_type": {"type": "string"},
@@ -661,7 +568,6 @@ def test_file_data():
                     ],
                     "default": None,
                 },
-                "doc_type": {"type": "string", "default": "file"},
                 "metadata": {
                     "type": "object",
                     "properties": {
@@ -711,73 +617,21 @@ def test_file_data():
                         },
                     },
                     "required": [],
-                    "default": {
-                        "type": "object",
-                        "properties": {
-                            "url": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "default": None,
-                            },
-                            "version": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "default": None,
-                            },
-                            "record_locator": {
-                                "anyOf": [
-                                    {
-                                        "type": "object",
-                                        "items": {"key": {"type": "string"}, "value": {}},
-                                    },
-                                    {"type": "null"},
-                                ],
-                                "default": None,
-                            },
-                            "date_created": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "default": None,
-                            },
-                            "date_modified": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "default": None,
-                            },
-                            "date_processed": {
-                                "anyOf": [{"type": "string"}, {"type": "null"}],
-                                "default": None,
-                            },
-                            "permissions_data": {
-                                "anyOf": [
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "items": {"key": {"type": "string"}, "value": {}},
-                                        },
-                                    },
-                                    {"type": "null"},
-                                ],
-                                "default": None,
-                            },
-                            "filesize_bytes": {
-                                "anyOf": [{"type": "integer"}, {"type": "null"}],
-                                "default": None,
-                            },
-                        },
-                        "required": [],
-                    },
                 },
                 "additional_metadata": {
                     "type": "object",
                     "items": {"key": {"type": "string"}, "value": {}},
-                    "default": {},
                 },
                 "reprocess": {"type": "boolean", "default": False},
                 "local_download_path": {
                     "anyOf": [{"type": "string"}, {"type": "null"}],
                     "default": None,
                 },
+                "display_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
             },
-            "required": ["identifier", "connector_type"],
+            "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
         },
     }
+
     assert output_schema == expected_output_schema
     assert is_valid_response_dict(output_schema)
