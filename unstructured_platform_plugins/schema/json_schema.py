@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional, Type, Union, _UnionGenericAlias
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
-from unstructured_ingest.v2.interfaces import FileData
+from unstructured_ingest.v2.interfaces import BatchFileData, FileData
 
 from unstructured_platform_plugins.schema.utils import TypedParameter
 from unstructured_platform_plugins.type_hints import get_type_hints
@@ -98,9 +98,9 @@ def union_type_to_json_schema(t: UnionType) -> dict:
 
 def dataclass_to_json_schema(class_or_instance: Any) -> dict:
     resp = {"type": "object"}
-    is_filedata_instance = isinstance(class_or_instance, FileData)
-    is_filedata_class = class_or_instance is FileData
-    if is_filedata_instance or is_filedata_class:
+    if isinstance(class_or_instance, BatchFileData) or class_or_instance is BatchFileData:
+        resp["is_batch_file_data"] = True
+    elif isinstance(class_or_instance, FileData) or class_or_instance is FileData:
         resp["is_file_data"] = True
     fs = fields(class_or_instance)
     if not fs:
@@ -279,6 +279,8 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
     t = typed_map_reverse[json_type_name]
     if t is dict and type_info.get("is_file_data", False):
         return FileData
+    if t is dict and type_info.get("is_batch_file_data", False):
+        return BatchFileData
     if t is str and type_info.get("is_path", False):
         return Path
     if t is dict and "properties" in type_info:

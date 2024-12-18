@@ -116,7 +116,7 @@ def test_map_inputs():
         "b": {"d": True, "e": {"key": "value"}},
         "c": MyEnum.VALUE.value,
         "d": [1, 2, 3],
-        "e": file_data.to_dict(),
+        "e": file_data.model_dump(),
     }
 
     mapped_inputs = utils.map_inputs(func=fn, raw_inputs=inputs)

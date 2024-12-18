@@ -1,3 +1,7 @@
+## 0.0.14
+
+* **Add support for batch file data**
+
 ## 0.0.13
 
 * **Conform to PEP-625 compliance for project naming**
