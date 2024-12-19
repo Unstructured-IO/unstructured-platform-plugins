@@ -186,7 +186,7 @@ def wrap_in_fastapi(
             request_dict = {f: getattr(request, f) for f in request.model_fields}
             # Map FileData back to original dataclass if present
             if "file_data" in request_dict:
-                request_dict["file_data"] = FileData.from_dict(
+                request_dict["file_data"] = FileData.model_validate(
                     request_dict["file_data"].model_dump()
                 )
             map_inputs(func=func, raw_inputs=request_dict)
