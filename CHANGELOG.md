@@ -1,3 +1,6 @@
+## 0.0.15
+* **Fix FileData reconstruction after FileData refactor**
+
 ## 0.0.14
 
 * **Add support for batch file data**
