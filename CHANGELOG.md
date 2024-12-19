@@ -1,3 +1,7 @@
+## 0.0.15
+
+* **Bugfix for file data serialization**
+
 ## 0.0.14
 
 * **Add support for batch file data**

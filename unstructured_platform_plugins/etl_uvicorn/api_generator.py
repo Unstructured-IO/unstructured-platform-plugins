@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
-from unstructured_ingest.v2.interfaces import FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -29,6 +28,11 @@ from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageD
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
+
+
+class EtlApiException(Exception):
+    pass
+
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -100,7 +104,19 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
-):
+) -> FastAPI:
+    try:
+        return _wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)
+    except Exception as e:
+        logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
+        raise EtlApiException(e) from e
+
+
+def _wrap_in_fastapi(
+    func: Callable,
+    plugin_id: str,
+    precheck_func: Optional[Callable] = None,
+) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
 
@@ -184,11 +200,6 @@ def wrap_in_fastapi(
             log_func_and_body(func=func, body=request.json())
             # Create dictionary from pydantic model while preserving underlying types
             request_dict = {f: getattr(request, f) for f in request.model_fields}
-            # Map FileData back to original dataclass if present
-            if "file_data" in request_dict:
-                request_dict["file_data"] = FileData.from_dict(
-                    request_dict["file_data"].model_dump()
-                )
             map_inputs(func=func, raw_inputs=request_dict)
             if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
                 logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
