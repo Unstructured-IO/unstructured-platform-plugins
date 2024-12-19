@@ -4,7 +4,7 @@ from enum import Enum
 
 import pytest
 from pydantic import BaseModel
-from unstructured_ingest.v2.interfaces import FileData
+from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn import utils
@@ -110,6 +110,7 @@ def test_map_inputs():
         identifier="custom_file_data",
         connector_type="mock_connector",
         additional_metadata={"additional": "metadata"},
+        source_identifiers=SourceIdentifiers(filename="file.txt", fullpath="file.txt"),
     )
     inputs = {
         "a": {"b": 4, "c": 5.6},
