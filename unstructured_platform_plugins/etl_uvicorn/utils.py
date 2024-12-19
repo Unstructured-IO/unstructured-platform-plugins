@@ -101,11 +101,19 @@ def map_inputs(func: Callable, raw_inputs: dict[str, Any]) -> dict[str, Any]:
         field_value = raw_inputs[field_name]
         try:
             if (
+                hasattr(type_data, "__origin__")
+                and type_data.__origin__ is dict
+                and isinstance(raw_inputs[field_name], dict)
+            ):
+                # Expects a dict and value is already a dict
+                continue
+            elif (
                 inspect.isclass(type_data)
                 and issubclass(type_data, DataClassJsonMixin)
                 and isinstance(field_value, dict)
             ):
                 raw_inputs[field_name] = type_data.from_dict(raw_inputs[field_name])
+
             elif is_dataclass(type_data) and isinstance(field_value, dict):
                 raw_inputs[field_name] = type_data(**raw_inputs[field_name])
             elif isinstance(type_data, EnumMeta):

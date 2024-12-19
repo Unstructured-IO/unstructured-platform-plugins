@@ -32,7 +32,7 @@ idna==3.10
     # via anyio
 importlib-metadata==8.5.0
     # via opentelemetry-api
-marshmallow==3.23.1
+marshmallow==3.23.2
     # via dataclasses-json
 mypy-extensions==1.0.0
     # via typing-inspect
@@ -84,15 +84,15 @@ packaging==24.2
     #   opentelemetry-instrumentation
 pandas==2.2.3
     # via unstructured-ingest
-protobuf==5.29.1
+protobuf==5.29.2
     # via
     #   googleapis-common-protos
     #   opentelemetry-proto
-pydantic==2.10.3
+pydantic==2.10.4
     # via
     #   fastapi
     #   unstructured-ingest
-pydantic-core==2.27.1
+pydantic-core==2.27.2
     # via pydantic
 python-dateutil==2.9.0.post0
     # via
@@ -122,7 +122,7 @@ typing-inspect==0.9.0
     # via dataclasses-json
 tzdata==2024.2
     # via pandas
-unstructured-ingest==0.3.10
+unstructured-ingest==0.3.11
     # via -r ./cli.in
 uvicorn==0.34.0
     # via -r ./cli.in

@@ -449,22 +449,16 @@ def test_file_data():
                     "identifier": {"type": "string"},
                     "connector_type": {"type": "string"},
                     "source_identifiers": {
-                        "anyOf": [
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "filename": {"type": "string"},
-                                    "fullpath": {"type": "string"},
-                                    "rel_path": {
-                                        "anyOf": [{"type": "string"}, {"type": "null"}],
-                                        "default": None,
-                                    },
-                                },
-                                "required": ["filename", "fullpath"],
+                        "type": "object",
+                        "properties": {
+                            "filename": {"type": "string"},
+                            "fullpath": {"type": "string"},
+                            "rel_path": {
+                                "anyOf": [{"type": "string"}, {"type": "null"}],
+                                "default": None,
                             },
-                            {"type": "null"},
-                        ],
-                        "default": None,
+                        },
+                        "required": ["filename", "fullpath"],
                     },
                     "metadata": {
                         "type": "object",
@@ -533,7 +527,13 @@ def test_file_data():
                         "default": None,
                     },
                 },
-                "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
+                "required": [
+                    "identifier",
+                    "connector_type",
+                    "source_identifiers",
+                    "metadata",
+                    "additional_metadata",
+                ],
             }
         },
     }
@@ -551,22 +551,16 @@ def test_file_data():
                 "identifier": {"type": "string"},
                 "connector_type": {"type": "string"},
                 "source_identifiers": {
-                    "anyOf": [
-                        {
-                            "type": "object",
-                            "properties": {
-                                "filename": {"type": "string"},
-                                "fullpath": {"type": "string"},
-                                "rel_path": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}],
-                                    "default": None,
-                                },
-                            },
-                            "required": ["filename", "fullpath"],
+                    "type": "object",
+                    "properties": {
+                        "filename": {"type": "string"},
+                        "fullpath": {"type": "string"},
+                        "rel_path": {
+                            "anyOf": [{"type": "string"}, {"type": "null"}],
+                            "default": None,
                         },
-                        {"type": "null"},
-                    ],
-                    "default": None,
+                    },
+                    "required": ["filename", "fullpath"],
                 },
                 "metadata": {
                     "type": "object",
@@ -629,7 +623,13 @@ def test_file_data():
                 },
                 "display_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
             },
-            "required": ["identifier", "connector_type", "metadata", "additional_metadata"],
+            "required": [
+                "identifier",
+                "connector_type",
+                "source_identifiers",
+                "metadata",
+                "additional_metadata",
+            ],
         },
     }
 
