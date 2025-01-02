@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
+from unstructured_ingest.v2.interfaces import BatchFileData, FileData
+
 
 class SampleFunctionResponse(TypedDict):
     response: dict[str, Any]
@@ -20,10 +22,11 @@ class SampleFunctionWithPathResponse:
     resolved: str
     b: str
     c: int
+    p: bool
 
 
 def sample_function_with_path(
-    b: str, c: int, a: Optional[Path] = None
+    file_data: FileData, b: str, c: int, a: Optional[Path] = None
 ) -> SampleFunctionWithPathResponse:
     s: list[Any] = [type(a).__name__, f"[exists: {a.exists()}]", a.resolve()] if a else []
     s.extend([b, c])
@@ -33,5 +36,10 @@ def sample_function_with_path(
         "resolved": a.resolve(),
         "b": b,
         "c": c,
+        "p": (
+            False
+            if isinstance(file_data, BatchFileData)
+            else file_data.source_identifiers.relative_path is not None
+        ),
     }
     return SampleFunctionWithPathResponse(**resp)
