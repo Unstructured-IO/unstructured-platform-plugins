@@ -38,9 +38,15 @@ mock_file_data = [
 ]
 
 
-@pytest.mark.parametrize(
-    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
-)
+@pytest.fixture
+def file_data() -> FileData:
+    return FileData(
+        identifier="mock file data",
+        connector_type="CON",
+        source_identifiers=SourceIdentifiers(filename="n", fullpath="n"),
+    )
+
+
 def test_async_sample_function(file_data):
     from test.assets.async_typed_dict_response import async_sample_function as test_fn
 
@@ -56,9 +62,6 @@ def test_async_sample_function(file_data):
     assert output == {"response": {"a_out": 1, "b_out": 2}}
 
 
-@pytest.mark.parametrize(
-    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
-)
 def test_dataclass_response(file_data):
     from test.assets.dataclass_response import sample_function_with_path as test_fn
 
@@ -78,12 +81,10 @@ def test_dataclass_response(file_data):
         "resolved": str(current_path.resolve()),
         "b": "2",
         "c": 1,
+        "p": not isinstance(file_data, BatchFileData),
     }
 
 
-@pytest.mark.parametrize(
-    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
-)
 def test_empty_input_and_output(file_data):
     from test.assets.empty_input_and_response import SampleClass as TestClass
 
@@ -98,9 +99,6 @@ def test_empty_input_and_output(file_data):
     assert not output
 
 
-@pytest.mark.parametrize(
-    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
-)
 def test_filedata_meta(file_data):
     from test.assets.filedata_meta import Input
     from test.assets.filedata_meta import process_input as test_fn

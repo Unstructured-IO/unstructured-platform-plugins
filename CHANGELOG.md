@@ -1,3 +1,7 @@
+## 0.0.16
+
+* **Bugfix for file data deserialization**
+
 ## 0.0.15
 
 * **Bugfix for file data serialization**
