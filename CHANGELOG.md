@@ -1,3 +1,7 @@
+## 0.0.17
+
+* **Bugfix supporting list union types in response**
+
 ## 0.0.16
 
 * **Bugfix for file data deserialization**
