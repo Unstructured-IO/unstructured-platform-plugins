@@ -307,11 +307,20 @@ def schema_to_base_model_type(json_type_name, name: str, type_info: dict) -> Typ
             t = dict[key_subtype, value_subtype]
     if t is list and "items" in type_info and isinstance(type_info["items"], dict):
         items = type_info["items"]
-        item_type_name = items["type"]
-        subtype = schema_to_base_model_type(
-            json_type_name=item_type_name, name=f"{name}_type", type_info=items
-        )
-        t = list[subtype]
+        if "anyOf" in items:
+            subtype_info = [
+                schema_to_base_model_type(
+                    json_type_name=k["type"], name=f"{k}_{index}_type", type_info=k
+                )
+                for index, k in enumerate(items["anyOf"])
+            ]
+            t = _UnionGenericAlias(Union, tuple(subtype_info))
+        else:
+            item_type_name = items["type"]
+            subtype = schema_to_base_model_type(
+                json_type_name=item_type_name, name=f"{name}_type", type_info=items
+            )
+            t = list[subtype]
     if "enum" in type_info and isinstance(type_info["enum"], list):
         enum_content = type_info["enum"]
         t = Enum(f"{name}_enum", {v: v for v in enum_content})
