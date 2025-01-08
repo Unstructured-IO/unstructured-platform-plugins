@@ -187,13 +187,11 @@ def _wrap_in_fastapi(
             )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
-            print(type(invoke_error))
             http_error = wrap_error(invoke_error)
-            print(http_error)
             return InvokeResponse(
                 usage=usage,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_error.status_code,
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
             )
 
