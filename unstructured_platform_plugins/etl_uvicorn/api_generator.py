@@ -15,6 +15,7 @@ from unstructured_ingest.v2.interfaces.file_data import file_data_from_dict
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
+from unstructured_platform_plugins.etl_uvicorn.errors import wrap_error
 from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
 from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_func,
@@ -186,12 +187,12 @@ def _wrap_in_fastapi(
             )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
+            http_error = wrap_error(invoke_error)
             return InvokeResponse(
                 usage=usage,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                status_code_text=f"failed to invoke plugin: "
-                f"[{invoke_error.__class__.__name__}] {invoke_error}",
+                status_code=http_error.status_code,
+                status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
             )
 
     if input_schema_model.model_fields:

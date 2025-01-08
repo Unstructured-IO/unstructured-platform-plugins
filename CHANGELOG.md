@@ -1,3 +1,7 @@
+## 0.0.19
+
+* **Add more granular error response texts and codes**
+
 ## 0.0.18
 
 * **Receive ingest 0.3.12**
