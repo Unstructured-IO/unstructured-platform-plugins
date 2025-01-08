@@ -1,3 +1,7 @@
+## 0.0.18
+
+* **Receive ingest 0.3.12**
+
 ## 0.0.17
 
 * **Bugfix supporting list union types in response**
