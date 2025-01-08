@@ -4,7 +4,7 @@ backports-tarfile==1.2.0
     # via jaraco-context
 certifi==2024.12.14
     # via requests
-charset-normalizer==3.4.0
+charset-normalizer==3.4.1
     # via requests
 docutils==0.21.2
     # via readme-renderer
@@ -18,7 +18,7 @@ jaraco-context==6.0.1
     # via keyring
 jaraco-functools==4.1.0
     # via keyring
-keyring==25.5.0
+keyring==25.6.0
     # via twine
 markdown-it-py==3.0.0
     # via rich
@@ -34,7 +34,7 @@ packaging==24.2
     # via twine
 pkginfo==1.12.0
     # via twine
-pygments==2.18.0
+pygments==2.19.1
     # via
     #   readme-renderer
     #   rich
@@ -54,7 +54,7 @@ twine==6.0.1
     # via -r ./release.in
 typing-extensions==4.12.2
     # via rich
-urllib3==2.2.3
+urllib3==2.3.0
     # via
     #   requests
     #   twine
