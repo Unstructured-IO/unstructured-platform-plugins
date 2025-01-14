@@ -66,7 +66,7 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
-    python_requires=">=3.10,<3.13",
+    python_requires=">=3.10,<3.14",
     url="https://github.com/Unstructured-IO/unstructured-platform-plugins",  # noqa: 501
     packages=find_packages(),
     license="Apache-2.0",
