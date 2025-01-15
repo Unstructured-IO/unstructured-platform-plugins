@@ -1,3 +1,7 @@
+## 0.0.20
+
+* **Expand support to Python 3.13**
+
 ## 0.0.19
 
 * **Add more granular error response texts and codes**
