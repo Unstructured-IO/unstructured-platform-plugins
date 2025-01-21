@@ -1,5 +1,9 @@
 ## 0.0.20
 
+* **Bump `unstructured-ingest` to 0.3.15**
+
+## 0.0.20
+
 * **Expand support to Python 3.13**
 
 ## 0.0.19

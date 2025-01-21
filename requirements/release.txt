@@ -4,13 +4,17 @@ backports-tarfile==1.2.0
     # via jaraco-context
 certifi==2024.12.14
     # via requests
+cffi==1.17.1
+    # via cryptography
 charset-normalizer==3.4.1
     # via requests
+cryptography==44.0.0
+    # via secretstorage
 docutils==0.21.2
     # via readme-renderer
 idna==3.10
     # via requests
-importlib-metadata==8.5.0
+importlib-metadata==8.6.1
     # via keyring
 jaraco-classes==3.4.0
     # via keyring
@@ -18,6 +22,10 @@ jaraco-context==6.0.1
     # via keyring
 jaraco-functools==4.1.0
     # via keyring
+jeepney==0.8.0
+    # via
+    #   keyring
+    #   secretstorage
 keyring==25.6.0
     # via twine
 markdown-it-py==3.0.0
@@ -34,6 +42,8 @@ packaging==24.2
     # via twine
 pkginfo==1.12.0
     # via twine
+pycparser==2.22
+    # via cffi
 pygments==2.19.1
     # via
     #   readme-renderer
@@ -50,6 +60,8 @@ rfc3986==2.0.0
     # via twine
 rich==13.9.4
     # via twine
+secretstorage==3.3.3
+    # via keyring
 twine==6.0.1
     # via -r ./release.in
 typing-extensions==4.12.2
