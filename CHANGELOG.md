@@ -1,3 +1,7 @@
+## 0.0.22
+
+* **Bump `unstructured-ingest` to 0.4.0**
+
 ## 0.0.21
 
 * **Bump `unstructured-ingest` to 0.3.15**
