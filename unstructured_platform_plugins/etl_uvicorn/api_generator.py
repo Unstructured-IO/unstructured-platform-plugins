@@ -168,7 +168,7 @@ def _wrap_in_fastapi(
                                 output=output,
                             ).model_dump_json() + "\n"
                     except Exception as e:
-                        logger.error(f"failed to stream response: {e}", exc_info=True)
+                        logger.error(f"Failure streaming response: {e}", exc_info=True)
                         yield InvokeResponse(
                             usage=usage,
                             filedata_meta=None,
