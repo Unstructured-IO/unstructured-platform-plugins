@@ -132,7 +132,7 @@ def _wrap_in_fastapi(
     class InvokeResponse(BaseModel):
         usage: list[UsageData]
         status_code: int
-        filedata_meta: filedata_meta_model
+        filedata_meta: Optional[filedata_meta_model]
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
 
@@ -156,16 +156,24 @@ def _wrap_in_fastapi(
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
-
                 async def _stream_response():
-                    async for output in func(**(request_dict or {})):
+                    try:
+                        async for output in func(**(request_dict or {})):
+                            yield InvokeResponse(
+                                usage=usage,
+                                filedata_meta=filedata_meta_model.model_validate(
+                                    filedata_meta.model_dump()
+                                ),
+                                status_code=status.HTTP_200_OK,
+                                output=output,
+                            ).model_dump_json() + "\n"
+                    except Exception as e:
+                        logger.error(f"failed to stream response: {e}", exc_info=True)
                         yield InvokeResponse(
                             usage=usage,
-                            filedata_meta=filedata_meta_model.model_validate(
-                                filedata_meta.model_dump()
-                            ),
-                            status_code=status.HTTP_200_OK,
-                            output=output,
+                            filedata_meta=None,
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            status_code_text=f"[{e.__class__.__name__}] {e}",
                         ).model_dump_json() + "\n"
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
