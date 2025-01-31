@@ -1,3 +1,7 @@
+## 0.0.23
+
+* **Handle errors in streaming responses**
+
 ## 0.0.22
 
 * **Bump `unstructured-ingest` to 0.4.0**
