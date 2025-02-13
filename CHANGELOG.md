@@ -1,3 +1,7 @@
+## 0.0.24
+
+* **Add support for passing messages back other than errors**
+
 ## 0.0.23
 
 * **Handle errors in streaming responses**
