@@ -142,7 +142,7 @@ def _wrap_in_fastapi(
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
-    input_schema = get_input_schema(func, omit=["usage", "filedata_meta"])
+    input_schema = get_input_schema(func, omit=["usage", "filedata_meta", "message_channels"])
     input_schema_model = schema_to_base_model(input_schema)
 
     logging.getLogger("etl_uvicorn.fastapi")
