@@ -1,3 +1,7 @@
+## 0.0.25
+
+* **Remove message channels from input signature**
+
 ## 0.0.24
 
 * **Add support for passing messages back other than errors**
