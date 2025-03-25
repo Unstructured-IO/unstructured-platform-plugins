@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, TypedDict, Union
 
-from unstructured_ingest.v2.interfaces import BatchFileData, FileData
+from unstructured_ingest.v2.types.file_data import BatchFileData, FileData
 
 
 class SampleFunctionResponse(TypedDict):
