@@ -2,7 +2,7 @@
 #    uv pip compile ./release.in --output-file ./release.txt --no-strip-extras --python-version 3.10
 backports-tarfile==1.2.0
     # via jaraco-context
-certifi==2024.12.14
+certifi==2025.1.31
     # via requests
 charset-normalizer==3.4.1
     # via requests
@@ -30,7 +30,7 @@ more-itertools==10.6.0
     # via
     #   jaraco-classes
     #   jaraco-functools
-nh3==0.2.20
+nh3==0.2.21
     # via readme-renderer
 packaging==24.2
     # via twine

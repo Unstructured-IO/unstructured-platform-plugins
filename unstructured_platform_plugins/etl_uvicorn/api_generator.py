@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
-from unstructured_ingest.v2.interfaces.file_data import file_data_from_dict
+from unstructured_ingest.v2.types.file_data import file_data_from_dict
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
