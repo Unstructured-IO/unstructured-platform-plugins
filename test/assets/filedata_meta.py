@@ -2,7 +2,7 @@ import math
 from typing import Optional, Union
 
 from pydantic import BaseModel
-from unstructured_ingest.v2.interfaces import BatchFileData, FileData, SourceIdentifiers
+from unstructured_ingest.v2.types.file_data import BatchFileData, FileData, SourceIdentifiers
 
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord
 

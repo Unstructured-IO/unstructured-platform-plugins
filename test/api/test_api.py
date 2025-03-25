@@ -4,7 +4,12 @@ from typing import Any, Optional
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-from unstructured_ingest.v2.interfaces import BatchFileData, BatchItem, FileData, SourceIdentifiers
+from unstructured_ingest.v2.types.file_data import (
+    BatchFileData,
+    BatchItem,
+    FileData,
+    SourceIdentifiers,
+)
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,

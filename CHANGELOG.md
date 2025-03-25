@@ -1,3 +1,8 @@
+## 0.0.26
+
+* **Bump `unstructured-ingest` to 0.5.23**
+* **Change how we import FileData type for slimmer import graph at runtime**
+
 ## 0.0.25
 
 * **Remove message channels from input signature**
