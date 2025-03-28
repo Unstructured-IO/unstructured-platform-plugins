@@ -1,3 +1,7 @@
+## 0.0.28
+
+* **Isolate what gets bundled in package**
+
 ## 0.0.27
 
 * **Update repo to us `uv`**

@@ -27,7 +27,7 @@ jobs:
 
       - name: Build artifact
         run: |
-          uv run python -m build
+          uv build
 
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@release/v1
