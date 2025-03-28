@@ -79,3 +79,9 @@ asyncio_mode = "auto"
 [tool.coverage.report]
 # TODO: improve this
 fail_under = 15
+
+[tool.hatch.build.targets.wheel]
+    packages = ["/unstructured_platform_plugins"]
+
+[tool.hatch.build.targets.sdist]
+    packages = ["/unstructured_platform_plugins"]
