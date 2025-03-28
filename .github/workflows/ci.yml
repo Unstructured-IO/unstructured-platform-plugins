@@ -31,8 +31,8 @@ jobs:
       - name: Install dependencies
         run: make install-dependencies
 
-      - name: Run check-python
-        run: make check-python
+      - name: Run check-ruff
+        run: make check-ruff
 
   shfmt:
     runs-on: ubuntu-latest
