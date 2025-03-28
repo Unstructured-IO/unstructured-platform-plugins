@@ -12,7 +12,6 @@ class SampleClassMethodResponse(BaseModel):
 
 
 class SampleClass:
-
     def sample_method(self, content: dict[str, Any]) -> SampleClassMethodResponse:
         resp = {f"{k}_{self.__class__.__name__}": v for k, v in content.items()}
         return SampleClassMethodResponse(response=resp)

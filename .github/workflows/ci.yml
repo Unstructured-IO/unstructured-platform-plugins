@@ -20,16 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: make install-lint
+      - name: Set up Python
+        run: uv python install
 
-      - name: Run check-python
-        run: make check-python
+      - name: Install dependencies
+        run: make install-dependencies
+
+      - name: Run check-ruff
+        run: make check-ruff
 
   shfmt:
     runs-on: ubuntu-latest
@@ -48,13 +51,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Python
+        run: uv python install
+
       - name: Install dependencies
-        run: make install
+        run: make install-dependencies
 
       - name: Run tests
         run: make test

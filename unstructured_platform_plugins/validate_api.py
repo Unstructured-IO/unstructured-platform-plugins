@@ -39,8 +39,9 @@ def check_schema_response(api_session: ApiSession):
         resp.raise_for_status()
     except Exception as e:
         raise ValidationError(
-            "failed to validate response from schema "
-            "endpoint {}: {}".format(api_session.get_url(url="/schema"), e)
+            "failed to validate response from schema endpoint {}: {}".format(
+                api_session.get_url(url="/schema"), e
+            )
         ) from e
     contents = resp.json()
     if not is_valid_input_dict(contents):
@@ -55,8 +56,9 @@ def check_id_response(api_session: ApiSession):
         assert contents.strip() != ""
     except Exception as e:
         raise ValidationError(
-            "failed to validate response from id endpoint "
-            "{}: {}".format(api_session.get_url(url="/id"), e)
+            "failed to validate response from id endpoint {}: {}".format(
+                api_session.get_url(url="/id"), e
+            )
         ) from e
 
 

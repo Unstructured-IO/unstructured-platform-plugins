@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Any, Optional
 
-import unstructured_ingest.v2.errors as ingest_errors
+import unstructured_ingest.errors_v2 as ingest_errors
 from fastapi import HTTPException
 
 

@@ -89,7 +89,7 @@ def get_type_hints(obj, globalns=None, localns=None, include_extras=False):
         if isinstance(obj, _allowed_types):
             return {}
         else:
-            raise TypeError(f"{obj!r} is not a module, class, method, " "or function.")
+            raise TypeError(f"{obj!r} is not a module, class, method, or function.")
     hints = dict(hints)
     for name, value in hints.items():
         if value is None:

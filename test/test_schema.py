@@ -6,7 +6,7 @@ from typing import Any, Optional, Union
 import pytest
 from pydantic import BaseModel
 from typing_extensions import TypedDict
-from unstructured_ingest.v2.types.file_data import FileData
+from unstructured_ingest.data_types.file_data import FileData
 
 import unstructured_platform_plugins.schema.json_schema as js
 from unstructured_platform_plugins.schema.model import is_valid_input_dict, is_valid_response_dict
@@ -406,7 +406,6 @@ class MockOutputClass:
 
 
 def test_forward_reference_typing():
-
     def fn(a: "MockInputClass") -> "MockOutputClass":
         pass
 

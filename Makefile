@@ -1,93 +1,54 @@
+PROJECT_NAME := unstructured_platform_plugins
+PROJECT_SRC_DIR := $(subst -,_,${PROJECT_NAME})
+SHELL_FILES := $(shell find . -name '*.sh' -type f | grep -v venv)
 ###########
 # INSTALL #
 ###########
 
-.PHONY: pip-compile
-pip-compile:
-	./scripts/pip-compile.sh
+.PHONY: install-dependencies
+install-dependencies:
+	@uv sync --all-groups
 
-.PHONY: install
-install: install-cli install-lint install-test
-
-.PHONY: install-cli
-install-cli:
-	pip install -r requirements/cli.txt
-
-.PHONY: install-lint
-install-lint:
-	pip install -r requirements/lint.txt
-
-.PHONY: install-test
-install-test:
-	pip install -r requirements/test.txt
-
-.PHONY: install-release
-install-release:
-	pip install -r requirements/release.txt
+.PHONY: upgrade-dependencies
+upgrade-dependencies:
+	@uv sync --all-groups --upgrade
 
 ###########
 #  TIDY   #
 ###########
 
 .PHONY: tidy
-tidy: tidy-black tidy-ruff tidy-autoflake tidy-shell
-
-.PHONY: tidy_shell
-tidy-shell:
-	shfmt -l -w .
+tidy: tidy-ruff
 
 .PHONY: tidy-ruff
 tidy-ruff:
-	ruff check --fix-only --show-fixes .
+	uv run ruff format .
+	uv run ruff check --fix-only --show-fixes .
 
-.PHONY: tidy-black
-tidy-black:
-	black .
-
-.PHONY: tidy-autoflake
-tidy-autoflake:
-	autoflake --in-place .
-
-.PHONY: version-sync
-version-sync:
-	scripts/version-sync.sh \
-		-f "unstructured_platform_plugins/__version__.py" semver
+.PHONY: tidy-shell
+tidy-shell:
+	shfmt -l -w ${SHELL_FILES}
 
 ###########
 #  CHECK  #
 ###########
 
 .PHONY: check
-check: check-python check-shell
-
-.PHONY: check-python
-check-python: check-black check-flake8 check-ruff check-autoflake check-version
-
-.PHONY: check-black
-check-black:
-	black . --check
-
-.PHONY: check-flake8
-check-flake8:
-	flake8 .
+check: check-ruff check-shell
 
 .PHONY: check-ruff
 check-ruff:
-	ruff check .
-
-.PHONY: check-autoflake
-check-autoflake:
-	autoflake --check-diff .
+	uv run ruff check .
 
 .PHONY: check-shell
 check-shell:
-	shfmt -d .
+	shfmt -d ${SHELL_FILES}
 
 .PHONY: check-version
 check-version:
     # Fail if syncing version would produce changes
 	scripts/version-sync.sh -c \
-		-f "unstructured_platform_plugins/__version__.py" semver
+		-f "${PROJECT_SRC_DIR}/__version__.py" semver
 
 ###########
 #  TEST   #
@@ -95,4 +56,4 @@ check-version:
 
 .PHONY: test
 test:
-	PYTHONPATH=. pytest
+	PYTHONPATH=. pytest --cov-config=pyproject.toml --cov-report=json --cov-report=term --cov=${PROJECT_SRC_DIR} -sv

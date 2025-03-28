@@ -59,7 +59,6 @@ def get_plugin_id(instance: Any, method_name: Optional[str] = None) -> str:
 
 
 def get_input_schema(func: Callable, omit: Optional[list[str]] = None) -> dict:
-
     parameters = get_typed_parameters(func)
     if omit:
         parameters = [p for p in parameters if p.name not in omit]

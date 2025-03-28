@@ -166,3 +166,4 @@ cython_debug/
 # Visual studio temps
 .vs/
 .vscode/
+coverage.json
