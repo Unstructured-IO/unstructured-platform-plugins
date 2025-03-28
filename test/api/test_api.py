@@ -4,7 +4,7 @@ from typing import Any, Optional
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-from unstructured_ingest.v2.types.file_data import (
+from unstructured_ingest.data_types.file_data import (
     BatchFileData,
     BatchItem,
     FileData,

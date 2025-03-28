@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
-from unstructured_ingest.v2.types.file_data import file_data_from_dict
+from unstructured_ingest.data_types.file_data import file_data_from_dict
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -168,24 +168,30 @@ def _wrap_in_fastapi(
                 async def _stream_response():
                     try:
                         async for output in func(**(request_dict or {})):
-                            yield InvokeResponse(
-                                usage=usage,
-                                message_channels=message_channels,
-                                filedata_meta=filedata_meta_model.model_validate(
-                                    filedata_meta.model_dump()
-                                ),
-                                status_code=status.HTTP_200_OK,
-                                output=output,
-                            ).model_dump_json() + "\n"
+                            yield (
+                                InvokeResponse(
+                                    usage=usage,
+                                    message_channels=message_channels,
+                                    filedata_meta=filedata_meta_model.model_validate(
+                                        filedata_meta.model_dump()
+                                    ),
+                                    status_code=status.HTTP_200_OK,
+                                    output=output,
+                                ).model_dump_json()
+                                + "\n"
+                            )
                     except Exception as e:
                         logger.error(f"Failure streaming response: {e}", exc_info=True)
-                        yield InvokeResponse(
-                            usage=usage,
-                            message_channels=message_channels,
-                            filedata_meta=None,
-                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            status_code_text=f"[{e.__class__.__name__}] {e}",
-                        ).model_dump_json() + "\n"
+                        yield (
+                            InvokeResponse(
+                                usage=usage,
+                                message_channels=message_channels,
+                                filedata_meta=None,
+                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                status_code_text=f"[{e.__class__.__name__}] {e}",
+                            ).model_dump_json()
+                            + "\n"
+                        )
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:

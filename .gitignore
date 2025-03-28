@@ -166,3 +166,5 @@ cython_debug/
 # Visual studio temps
 .vs/
 .vscode/
+uv.lock
+coverage.json
