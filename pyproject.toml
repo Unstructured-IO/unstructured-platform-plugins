@@ -37,7 +37,8 @@ path = "unstructured_platform_plugins/__version__.py"
 [dependency-groups]
 release = [
     "twine",
-    "wheel"
+    "wheel",
+    "build"
 ]
 lint = [
     "ruff",

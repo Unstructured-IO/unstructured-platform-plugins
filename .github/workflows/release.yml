@@ -27,8 +27,7 @@ jobs:
 
       - name: Build artifact
         run: |
-          python setup.py sdist
-          python setup.py bdist_wheel
+          uv run python -m build
 
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@release/v1
