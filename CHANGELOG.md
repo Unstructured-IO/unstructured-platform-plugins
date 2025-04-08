@@ -1,3 +1,7 @@
+## 0.0.29
+
+* **Support persisting file data changes**
+
 ## 0.0.28
 
 * **Isolate what gets bundled in package**

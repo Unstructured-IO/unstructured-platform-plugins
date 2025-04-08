@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
-from unstructured_ingest.data_types.file_data import file_data_from_dict
+from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -30,6 +30,8 @@ from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageD
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
 )
+
+FileDataType = Union[FileData, BatchFileData]
 
 
 class EtlApiException(Exception):
@@ -137,6 +139,7 @@ def _wrap_in_fastapi(
     class InvokeResponse(BaseModel):
         usage: list[UsageData]
         status_code: int
+        file_data: Optional[FileDataType] = None
         filedata_meta: Optional[filedata_meta_model]
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
@@ -177,6 +180,7 @@ def _wrap_in_fastapi(
                                     ),
                                     status_code=status.HTTP_200_OK,
                                     output=output,
+                                    file_data=request_dict.get("file_data", None),
                                 ).model_dump_json()
                                 + "\n"
                             )
@@ -202,6 +206,7 @@ def _wrap_in_fastapi(
                     filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                     status_code=status.HTTP_200_OK,
                     output=output,
+                    file_data=request_dict.get("file_data", None),
                 )
         except UnrecoverableException as ex:
             logger.info("Unrecoverable error occurred during plugin invocation")
@@ -211,6 +216,7 @@ def _wrap_in_fastapi(
                 status_code=512,
                 status_code_text=ex.message,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
             logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
@@ -221,6 +227,7 @@ def _wrap_in_fastapi(
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=http_error.status_code,
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
+                file_data=request_dict.get("file_data", None),
             )
 
     if input_schema_model.model_fields:
