@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,6 +25,7 @@ class InvokeResponse(BaseModel):
     filedata_meta: FileDataMeta
     status_code_text: Optional[str] = None
     output: Optional[Any] = None
+    file_data: Optional[Union[FileData, BatchFileData]] = None
 
     def generic_validation(self):
         assert self.status_code == 200
@@ -121,6 +122,9 @@ def test_filedata_meta(file_data):
     filedata_meta = invoke_response.filedata_meta
     assert len(filedata_meta.new_records) == 15
     assert filedata_meta.terminate_current
+    file_data = invoke_response.file_data
+    assert file_data
+    assert file_data.metadata.record_locator.get("key") == "value"
     assert not invoke_response.output
 
 

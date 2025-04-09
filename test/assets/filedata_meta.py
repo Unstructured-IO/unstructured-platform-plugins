@@ -18,6 +18,7 @@ class Output(BaseModel):
 def process_input(
     i: Input, file_data: Union[FileData, BatchFileData], filedata_meta: FileDataMeta
 ) -> Optional[Output]:
+    file_data.metadata.record_locator = {"key": "value"}
     if i.m > 10:
         filedata_meta.terminate_current = True
         new_content = [
