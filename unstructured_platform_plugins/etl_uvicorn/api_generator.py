@@ -140,7 +140,7 @@ def _wrap_in_fastapi(
         usage: list[UsageData]
         status_code: int
         file_data: Optional[FileDataType] = None
-        filedata_meta: Optional[filedata_meta_model]
+        filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
