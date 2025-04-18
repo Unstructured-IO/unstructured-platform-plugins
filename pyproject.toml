@@ -26,6 +26,7 @@ dependencies = [
     "unstructured-ingest",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-exporter-otlp-proto-grpc",
+    "dataclasses-json"
 ]
 dynamic = [
  "version",
