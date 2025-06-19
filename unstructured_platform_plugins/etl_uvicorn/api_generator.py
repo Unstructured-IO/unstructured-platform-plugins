@@ -4,16 +4,13 @@ import inspect
 import json
 import logging
 from functools import partial
-from shutil import ReadError
 from typing import Any, Callable, Optional, Union
 
-from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
-from requests import ReadTimeout
 from starlette.responses import RedirectResponse
-from unstructured_client.models.errors import HTTPValidationError
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
@@ -211,22 +208,11 @@ def _wrap_in_fastapi(
                     output=output,
                     file_data=request_dict.get("file_data", None),
                 )
-        except ReadError as exc:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": f"File read error: {str(exc)}"},
+        except HTTPException as exc:
+            logger.error(
+                f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
             )
-        except ReadTimeout as exc:
-            return JSONResponse(
-                status_code=504,
-                content={"detail": f"Partition service timeout: {str(exc)}"},
-            )
-        except HTTPValidationError as exc:
-            logger.error(f"HTTP validation error: {exc}", exc_info=True)
-            return JSONResponse(
-                status_code=422,
-                content={"detail": f"HTTP validation error: {str(exc)}"},
-            )
+            raise
         except UnrecoverableException as ex:
             logger.info("Unrecoverable error occurred during plugin invocation")
             return InvokeResponse(
