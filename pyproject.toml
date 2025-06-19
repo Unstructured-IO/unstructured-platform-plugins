@@ -24,8 +24,6 @@ dependencies = [
     "fastapi",
     "click",
     "unstructured-ingest",
-    "unstructured-client",
-    "platform-plugins",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-exporter-otlp-proto-grpc",
     "dataclasses-json"
