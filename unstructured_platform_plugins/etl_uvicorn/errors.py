@@ -36,6 +36,10 @@ class ProviderError(BaseError):
     status_code: int = 500
 
 
+class GatewayTimeoutError(BaseError):
+    status_code: int = 504
+
+
 class CatchAllError(BaseError):
     status_code: int = 512
 
@@ -43,8 +47,13 @@ class CatchAllError(BaseError):
 def wrap_error(e: Exception) -> HTTPException:
     if isinstance(e, ingest_errors.UserAuthError):
         return UserAuthError(e)
-    elif isinstance(e, ingest_errors.UnprocessableEntityError):
-        return UnprocessableEntityError(e)
+    elif isinstance(e, HTTPException):
+        if e.status_code == 400:
+            return UserError(e)
+        if e.status_code == 422:
+            return UnprocessableEntityError(e)
+        if e.status_code == 504:
+            return GatewayTimeoutError(e)
     elif isinstance(e, ingest_errors.RateLimitError):
         return RateLimitError(e)
     elif isinstance(e, ingest_errors.QuotaError):
