@@ -212,7 +212,14 @@ def _wrap_in_fastapi(
             logger.error(
                 f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
             )
-            raise
+            return InvokeResponse(
+                usage=usage,
+                message_channels=message_channels,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                status_code=wrap_error(exc).status_code,
+                status_code_text=f"[{exc.__class__.__name__}] {exc}",
+                file_data=request_dict.get("file_data", None),
+            )
         except UnrecoverableException as ex:
             logger.info("Unrecoverable error occurred during plugin invocation")
             return InvokeResponse(
