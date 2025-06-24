@@ -6,7 +6,7 @@ import logging
 from functools import partial
 from typing import Any, Callable, Optional, Union
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
@@ -208,6 +208,18 @@ def _wrap_in_fastapi(
                     output=output,
                     file_data=request_dict.get("file_data", None),
                 )
+        except HTTPException as exc:
+            logger.error(
+                f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
+            )
+            return InvokeResponse(
+                usage=usage,
+                message_channels=message_channels,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                status_code=wrap_error(exc).status_code,
+                status_code_text=f"[{exc.__class__.__name__}] {exc}",
+                file_data=request_dict.get("file_data", None),
+            )
         except UnrecoverableException as ex:
             logger.info("Unrecoverable error occurred during plugin invocation")
             return InvokeResponse(
