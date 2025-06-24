@@ -20,6 +20,10 @@ class UserAuthError(UserError):
     status_code: int = 403
 
 
+class UnprocessableEntityError(UserError):
+    status_code: int = 422
+
+
 class RateLimitError(UserError):
     status_code: int = 429
 
@@ -39,6 +43,8 @@ class CatchAllError(BaseError):
 def wrap_error(e: Exception) -> HTTPException:
     if isinstance(e, ingest_errors.UserAuthError):
         return UserAuthError(e)
+    elif isinstance(e, ingest_errors.UnprocessableEntityError):
+        return UnprocessableEntityError(e)
     elif isinstance(e, ingest_errors.RateLimitError):
         return RateLimitError(e)
     elif isinstance(e, ingest_errors.QuotaError):
