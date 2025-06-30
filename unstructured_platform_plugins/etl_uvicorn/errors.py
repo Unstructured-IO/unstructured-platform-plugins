@@ -20,10 +20,6 @@ class UserAuthError(UserError):
     status_code: int = 403
 
 
-class UnprocessableEntityError(UserError):
-    status_code: int = 422
-
-
 class RateLimitError(UserError):
     status_code: int = 429
 
@@ -45,16 +41,10 @@ class CatchAllError(BaseError):
 
 
 def wrap_error(e: Exception) -> HTTPException:
-    if isinstance(e, ingest_errors.UserAuthError):
-        return UserAuthError(e)
-    elif isinstance(e, HTTPException):
-        if e.status_code == 400:
-            return UserError(e)
-        if e.status_code == 422:
-            return UnprocessableEntityError(e)
-        if e.status_code == 504:
-            return GatewayTimeoutError(e)
+    if isinstance(e, HTTPException):
         return e
+    elif isinstance(e, ingest_errors.UserAuthError):
+        return UserAuthError(e)
     elif isinstance(e, ingest_errors.RateLimitError):
         return RateLimitError(e)
     elif isinstance(e, ingest_errors.QuotaError):
