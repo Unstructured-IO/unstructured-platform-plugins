@@ -20,7 +20,6 @@ class UserAuthError(UserError):
     status_code: int = 403
 
 
-
 class RateLimitError(UserError):
     status_code: int = 429
 
@@ -31,7 +30,6 @@ class QuotaError(UserError):
 
 class ProviderError(BaseError):
     status_code: int = 500
-
 
 
 class CatchAllError(BaseError):
