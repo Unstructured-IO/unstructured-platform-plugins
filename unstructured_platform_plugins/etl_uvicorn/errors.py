@@ -40,7 +40,9 @@ def wrap_error(e: Exception) -> HTTPException:
     """
     Wraps an exception in a HTTPException.
     """
-    if isinstance(e, ingest_errors.UserAuthError):
+    if isinstance(e, HTTPException):
+        return e
+    elif isinstance(e, ingest_errors.UserAuthError):
         return UserAuthError(e)
     elif isinstance(e, ingest_errors.RateLimitError):
         return RateLimitError(e)
