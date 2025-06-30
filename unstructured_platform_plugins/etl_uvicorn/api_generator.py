@@ -212,12 +212,14 @@ def _wrap_in_fastapi(
             logger.error(
                 f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
             )
+            # Convert detail to string if it's not already a string
+            detail_text = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
             return InvokeResponse(
                 usage=usage,
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=exc.status_code,
-                status_code_text=exc.detail,
+                status_code_text=detail_text,
                 file_data=request_dict.get("file_data", None),
             )
         except UnrecoverableException as ex:
