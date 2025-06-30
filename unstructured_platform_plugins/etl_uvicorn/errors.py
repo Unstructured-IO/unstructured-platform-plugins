@@ -54,6 +54,7 @@ def wrap_error(e: Exception) -> HTTPException:
             return UnprocessableEntityError(e)
         if e.status_code == 504:
             return GatewayTimeoutError(e)
+        return e
     elif isinstance(e, ingest_errors.RateLimitError):
         return RateLimitError(e)
     elif isinstance(e, ingest_errors.QuotaError):
