@@ -190,7 +190,9 @@ def _wrap_in_fastapi(
                             InvokeResponse(
                                 usage=usage,
                                 message_channels=message_channels,
-                                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                                filedata_meta=filedata_meta_model.model_validate(
+                                    filedata_meta.model_dump()
+                                ),
                                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
                             ).model_dump_json()
@@ -217,7 +219,9 @@ def _wrap_in_fastapi(
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=exc.status_code,
-                status_code_text=json.dumps(exc.detail) if isinstance(exc.detail, dict) else exc.detail,
+                status_code_text=json.dumps(exc.detail)
+                if isinstance(exc.detail, dict)
+                else exc.detail,
                 file_data=request_dict.get("file_data", None),
             )
         except UnrecoverableException as ex:
