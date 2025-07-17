@@ -186,6 +186,7 @@ def _wrap_in_fastapi(
                             )
                     except Exception as e:
                         logger.error(f"Failure streaming response: {e}", exc_info=True)
+                        http_error = wrap_error(e)
                         yield (
                             InvokeResponse(
                                 usage=usage,
@@ -193,7 +194,7 @@ def _wrap_in_fastapi(
                                 filedata_meta=filedata_meta_model.model_validate(
                                     filedata_meta.model_dump()
                                 ),
-                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                status_code=http_error.status_code,
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
                             ).model_dump_json()
                             + "\n"
