@@ -33,7 +33,7 @@ class ProviderError(BaseError):
 
 
 class CatchAllError(BaseError):
-    status_code: int = 512
+    status_code: int = 500
 
 
 def wrap_error(e: Exception) -> HTTPException:
