@@ -25,7 +25,6 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
-from unstructured_platform_plugins.exceptions import UnrecoverableException
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
     schema_to_base_model,
@@ -223,16 +222,6 @@ def _wrap_in_fastapi(
                 status_code_text=json.dumps(exc.detail)
                 if isinstance(exc.detail, dict)
                 else exc.detail,
-                file_data=request_dict.get("file_data", None),
-            )
-        except UnrecoverableException as ex:
-            logger.info("Unrecoverable error occurred during plugin invocation")
-            return InvokeResponse(
-                usage=usage,
-                message_channels=message_channels,
-                status_code=512,
-                status_code_text=ex.message,
-                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
