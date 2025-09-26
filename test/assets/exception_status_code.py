@@ -1,0 +1,92 @@
+"""Test assets for testing exception handling with various status_code scenarios."""
+
+from fastapi import HTTPException
+
+
+class ExceptionWithNoneStatusCode(Exception):
+    """Exception that has status_code attribute set to None."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.status_code = None
+
+
+class ExceptionWithValidStatusCode(Exception):
+    """Exception that has status_code attribute set to a valid integer."""
+
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class ExceptionWithoutStatusCode(Exception):
+    """Exception that has no status_code attribute."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+def function_raises_exception_with_none_status_code():
+    """Function that raises an exception with status_code=None."""
+    raise ExceptionWithNoneStatusCode("Test exception with None status_code")
+
+
+def function_raises_exception_with_valid_status_code():
+    """Function that raises an exception with valid status_code."""
+    raise ExceptionWithValidStatusCode("Test exception with valid status_code", 422)
+
+
+def function_raises_exception_without_status_code():
+    """Function that raises an exception without status_code attribute."""
+    raise ExceptionWithoutStatusCode("Test exception without status_code")
+
+
+def function_raises_http_exception():
+    """Function that raises FastAPI HTTPException."""
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+def function_raises_generic_exception():
+    """Function that raises a generic exception."""
+    raise ValueError("Generic error")
+
+
+# Async versions for streaming response tests
+async def async_function_raises_exception_with_none_status_code():
+    """Async function that raises an exception with status_code=None."""
+    raise ExceptionWithNoneStatusCode("Async test exception with None status_code")
+
+
+async def async_function_raises_exception_with_valid_status_code():
+    """Async function that raises an exception with valid status_code."""
+    raise ExceptionWithValidStatusCode("Async test exception with valid status_code", 422)
+
+
+async def async_function_raises_exception_without_status_code():
+    """Async function that raises an exception without status_code attribute."""
+    raise ExceptionWithoutStatusCode("Async test exception without status_code")
+
+
+# Async generator versions for streaming response error tests
+async def async_gen_function_raises_exception_with_none_status_code():
+    """Async generator that raises an exception with status_code=None."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    raise ExceptionWithNoneStatusCode("Async gen test exception with None status_code")
+
+
+async def async_gen_function_raises_exception_with_valid_status_code():
+    """Async generator that raises an exception with valid status_code."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    raise ExceptionWithValidStatusCode("Async gen test exception with valid status_code", 422)
+
+
+async def async_gen_function_raises_exception_without_status_code():
+    """Async generator that raises an exception without status_code attribute."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    raise ExceptionWithoutStatusCode("Async gen test exception without status_code")
