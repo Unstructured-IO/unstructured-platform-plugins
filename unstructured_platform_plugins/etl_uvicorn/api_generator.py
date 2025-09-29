@@ -191,9 +191,8 @@ def _wrap_in_fastapi(
                                 filedata_meta=filedata_meta_model.model_validate(
                                     filedata_meta.model_dump()
                                 ),
-                                status_code=e.status_code
-                                if hasattr(e, "status_code")
-                                else status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                status_code=getattr(e, "status_code", None)
+                                or status.HTTP_500_INTERNAL_SERVER_ERROR,
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
                             ).model_dump_json()
                             + "\n"
@@ -230,9 +229,8 @@ def _wrap_in_fastapi(
                 usage=usage,
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
-                status_code=invoke_error.status_code
-                if hasattr(invoke_error, "status_code")
-                else status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=getattr(invoke_error, "status_code", None)
+                or status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
                 file_data=request_dict.get("file_data", None),
             )
