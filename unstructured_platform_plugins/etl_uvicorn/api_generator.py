@@ -12,6 +12,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
+from unstructured_ingest.errors import UnstructuredIngestError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -221,6 +222,19 @@ def _wrap_in_fastapi(
                 status_code_text=json.dumps(exc.detail)
                 if isinstance(exc.detail, dict)
                 else exc.detail,
+                file_data=request_dict.get("file_data", None),
+            )
+        except UnstructuredIngestError as exc:
+            logger.error(
+                f"UnstructuredIngestError: {exc.error_string} (status_code={exc.status_code})",
+                exc_info=True,
+            )
+            return InvokeResponse(
+                usage=usage,
+                message_channels=message_channels,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                status_code=exc.status_code or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code_text=exc.error_string,
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
