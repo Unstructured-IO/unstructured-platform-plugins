@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 from unstructured_ingest.error import UnstructuredIngestError
+from unstructured_ingest.errors_v2 import UnstructuredIngestError as UnstructuredIngestErrorV2
 
 
 class ExceptionWithNoneStatusCode(Exception):
@@ -135,5 +136,54 @@ async def async_gen_function_raises_unstructured_ingest_error_with_none_status_c
     if False:  # This ensures the function is detected as a generator but never yields
         yield None
     error = UnstructuredIngestError("Async gen test UnstructuredIngestError with None status_code")
+    error.status_code = None
+    raise error
+
+
+# V2 Error Functions - using UnstructuredIngestErrorV2
+def function_raises_unstructured_ingest_error_v2_with_status_code():
+    """Function that raises UnstructuredIngestErrorV2 with status_code."""
+    error = UnstructuredIngestErrorV2("Test UnstructuredIngestErrorV2 with status_code")
+    error.status_code = 400
+    raise error
+
+
+def function_raises_unstructured_ingest_error_v2_without_status_code():
+    """Function that raises UnstructuredIngestErrorV2 without status_code."""
+    raise UnstructuredIngestErrorV2("Test UnstructuredIngestErrorV2 without status_code")
+
+
+def function_raises_unstructured_ingest_error_v2_with_none_status_code():
+    """Function that raises UnstructuredIngestErrorV2 with None status_code."""
+    error = UnstructuredIngestErrorV2("Test UnstructuredIngestErrorV2 with None status_code")
+    error.status_code = None
+    raise error
+
+
+async def async_function_raises_unstructured_ingest_error_v2():
+    """Async function that raises UnstructuredIngestErrorV2."""
+    error = UnstructuredIngestErrorV2("Async test UnstructuredIngestErrorV2")
+    error.status_code = 503
+    raise error
+
+
+async def async_gen_function_raises_unstructured_ingest_error_v2():
+    """Async generator that raises UnstructuredIngestErrorV2."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    error = UnstructuredIngestErrorV2("Async gen test UnstructuredIngestErrorV2")
+    error.status_code = 502
+    raise error
+
+
+async def async_gen_function_raises_unstructured_ingest_error_v2_with_none_status_code():
+    """Async generator that raises UnstructuredIngestErrorV2 with None status_code."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    error = UnstructuredIngestErrorV2(
+        "Async gen test UnstructuredIngestErrorV2 with None status_code"
+    )
     error.status_code = None
     raise error
