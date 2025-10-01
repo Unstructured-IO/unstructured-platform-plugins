@@ -1,6 +1,7 @@
 """Test assets for testing exception handling with various status_code scenarios."""
 
 from fastapi import HTTPException
+from unstructured_ingest.error import UnstructuredIngestError
 
 
 class ExceptionWithNoneStatusCode(Exception):
@@ -51,6 +52,25 @@ def function_raises_generic_exception():
     raise ValueError("Generic error")
 
 
+def function_raises_unstructured_ingest_error_with_status_code():
+    """Function that raises UnstructuredIngestError with status_code."""
+    error = UnstructuredIngestError("Test UnstructuredIngestError with status_code")
+    error.status_code = 400
+    raise error
+
+
+def function_raises_unstructured_ingest_error_without_status_code():
+    """Function that raises UnstructuredIngestError without status_code."""
+    raise UnstructuredIngestError("Test UnstructuredIngestError without status_code")
+
+
+def function_raises_unstructured_ingest_error_with_none_status_code():
+    """Function that raises UnstructuredIngestError with None status_code."""
+    error = UnstructuredIngestError("Test UnstructuredIngestError with None status_code")
+    error.status_code = None
+    raise error
+
+
 # Async versions for streaming response tests
 async def async_function_raises_exception_with_none_status_code():
     """Async function that raises an exception with status_code=None."""
@@ -65,6 +85,13 @@ async def async_function_raises_exception_with_valid_status_code():
 async def async_function_raises_exception_without_status_code():
     """Async function that raises an exception without status_code attribute."""
     raise ExceptionWithoutStatusCode("Async test exception without status_code")
+
+
+async def async_function_raises_unstructured_ingest_error():
+    """Async function that raises UnstructuredIngestError."""
+    error = UnstructuredIngestError("Async test UnstructuredIngestError")
+    error.status_code = 503
+    raise error
 
 
 # Async generator versions for streaming response error tests
@@ -90,3 +117,23 @@ async def async_gen_function_raises_exception_without_status_code():
     if False:  # This ensures the function is detected as a generator but never yields
         yield None
     raise ExceptionWithoutStatusCode("Async gen test exception without status_code")
+
+
+async def async_gen_function_raises_unstructured_ingest_error():
+    """Async generator that raises UnstructuredIngestError."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    error = UnstructuredIngestError("Async gen test UnstructuredIngestError")
+    error.status_code = 502
+    raise error
+
+
+async def async_gen_function_raises_unstructured_ingest_error_with_none_status_code():
+    """Async generator that raises UnstructuredIngestError with None status_code."""
+    # Don't yield anything, just raise the exception
+    if False:  # This ensures the function is detected as a generator but never yields
+        yield None
+    error = UnstructuredIngestError("Async gen test UnstructuredIngestError with None status_code")
+    error.status_code = None
+    raise error
