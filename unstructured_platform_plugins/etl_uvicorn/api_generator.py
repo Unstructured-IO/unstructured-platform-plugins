@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from unstructured_ingest.error import UnstructuredIngestError
-from unstructured_ingest.errors_v2 import UnstructuredIngestError as UnstructuredIngestErrorV2
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -225,7 +224,7 @@ def _wrap_in_fastapi(
                 else exc.detail,
                 file_data=request_dict.get("file_data", None),
             )
-        except (UnstructuredIngestError, UnstructuredIngestErrorV2) as exc:
+        except UnstructuredIngestError as exc:
             logger.error(
                 f"UnstructuredIngestError: {str(exc)} (status_code={exc.status_code})",
                 exc_info=True,
