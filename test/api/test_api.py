@@ -322,3 +322,151 @@ def test_streaming_exception_with_valid_status_code():
     # Should use the exception's status_code
     assert invoke_response.status_code == 422
     assert "ExceptionWithValidStatusCode" in invoke_response.status_code_text
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_unstructured_ingest_error_with_status_code(file_data):
+    """Test that UnstructuredIngestError with status_code is handled correctly."""
+    from test.assets.exception_status_code import (
+        function_raises_unstructured_ingest_error_with_status_code as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": file_data.model_dump()}
+    resp = client.post("/invoke", json=post_body)
+    resp_content = resp.json()
+    invoke_response = InvokeResponse.model_validate(resp_content)
+
+    # Should use the UnstructuredIngestError's status_code
+    assert invoke_response.status_code == 400
+    assert invoke_response.status_code_text == "Test UnstructuredIngestError with status_code"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_unstructured_ingest_error_without_status_code(file_data):
+    """Test that UnstructuredIngestError without status_code defaults to 500."""
+    from test.assets.exception_status_code import (
+        function_raises_unstructured_ingest_error_without_status_code as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": file_data.model_dump()}
+    resp = client.post("/invoke", json=post_body)
+    resp_content = resp.json()
+    invoke_response = InvokeResponse.model_validate(resp_content)
+
+    # Should default to 500 when UnstructuredIngestError has no status_code
+    assert invoke_response.status_code == 500
+    assert invoke_response.status_code_text == "Test UnstructuredIngestError without status_code"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_unstructured_ingest_error_with_none_status_code(file_data):
+    """Test that UnstructuredIngestError with None status_code defaults to 500."""
+    from test.assets.exception_status_code import (
+        function_raises_unstructured_ingest_error_with_none_status_code as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": file_data.model_dump()}
+    resp = client.post("/invoke", json=post_body)
+    resp_content = resp.json()
+    invoke_response = InvokeResponse.model_validate(resp_content)
+
+    # Should default to 500 when UnstructuredIngestError status_code is None
+    assert invoke_response.status_code == 500
+    assert invoke_response.status_code_text == "Test UnstructuredIngestError with None status_code"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_async_unstructured_ingest_error(file_data):
+    """Test that async functions with UnstructuredIngestError are handled correctly."""
+    from test.assets.exception_status_code import (
+        async_function_raises_unstructured_ingest_error as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": file_data.model_dump()}
+    resp = client.post("/invoke", json=post_body)
+    resp_content = resp.json()
+    invoke_response = InvokeResponse.model_validate(resp_content)
+
+    # Should use the UnstructuredIngestError's status_code
+    assert invoke_response.status_code == 503
+    assert invoke_response.status_code_text == "Async test UnstructuredIngestError"
+
+
+def test_streaming_unstructured_ingest_error():
+    """Test that async generator functions with UnstructuredIngestError are handled correctly."""
+    from test.assets.exception_status_code import (
+        async_gen_function_raises_unstructured_ingest_error as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": mock_file_data[0].model_dump()}
+    resp = client.post("/invoke", json=post_body)
+
+    # For streaming responses, we get NDJSON
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    # Parse the streaming response - should be a single error response
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 1  # Only error response since no items were yielded
+
+    # Parse the error response
+    import json
+
+    error_response = json.loads(lines[0])
+    invoke_response = InvokeResponse.model_validate(error_response)
+
+    # Should use the UnstructuredIngestError's status_code
+    assert invoke_response.status_code == 502
+    assert "Async gen test UnstructuredIngestError" in invoke_response.status_code_text
+
+
+def test_streaming_unstructured_ingest_error_with_none_status_code():
+    """Test that async generator functions with UnstructuredIngestError
+    with None status_code are handled correctly."""
+    from test.assets.exception_status_code import (
+        async_gen_function_raises_unstructured_ingest_error_with_none_status_code as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    post_body = {"file_data": mock_file_data[0].model_dump()}
+    resp = client.post("/invoke", json=post_body)
+
+    # For streaming responses, we get NDJSON
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    # Parse the streaming response - should be a single error response
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 1  # Only error response since no items were yielded
+
+    # Parse the error response
+    import json
+
+    error_response = json.loads(lines[0])
+    invoke_response = InvokeResponse.model_validate(error_response)
+
+    # Should default to 500 when UnstructuredIngestError status_code is None
+    assert invoke_response.status_code == 500
+    assert (
+        "Async gen test UnstructuredIngestError with None status_code"
+        in invoke_response.status_code_text
+    )
