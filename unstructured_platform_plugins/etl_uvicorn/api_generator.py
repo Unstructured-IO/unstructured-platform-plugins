@@ -11,8 +11,8 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, ValidationError, create_model
 from starlette.responses import RedirectResponse
-from utic_public_types.plugins.file_data import BatchFileData, FileData
 from utic_public_types.plugins.errors import UnstructuredIngestError
+from utic_public_types.plugins.file_data import BatchFileData, FileData
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -35,7 +35,7 @@ FileDataType = Union[FileData, BatchFileData]
 logger = logging.getLogger("uvicorn.error")
 
 
-def file_data_from_dict(data: dict) -> FileData:
+def file_data_from_dict(data: dict) -> FileDataType:
     try:
         return BatchFileData.model_validate(data)
     except ValidationError:
