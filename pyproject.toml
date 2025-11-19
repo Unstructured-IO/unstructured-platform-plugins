@@ -23,10 +23,10 @@ dependencies = [
     "uvicorn",
     "fastapi",
     "click",
-    "unstructured-ingest",
+    "utic-public-types",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-exporter-otlp-proto-grpc",
-    "dataclasses-json"
+    "dataclasses-json",
 ]
 dynamic = [
  "version",
