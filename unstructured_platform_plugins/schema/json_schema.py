@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional, Type, Union, _UnionGenericAlias
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
-from utic_public_types.plugins.file_data import BatchFileData, FileData
+from unstructured_ingest.data_types.file_data import BatchFileData, FileData
 
 from unstructured_platform_plugins.schema.utils import TypedParameter
 from unstructured_platform_plugins.type_hints import get_type_hints

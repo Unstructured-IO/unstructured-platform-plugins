@@ -9,10 +9,10 @@ from typing import Any, Callable, Optional, Union
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from pydantic import BaseModel, Field, ValidationError, create_model
+from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
-from utic_public_types.plugins.errors import UnstructuredIngestError
-from utic_public_types.plugins.file_data import BatchFileData, FileData
+from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
+from unstructured_ingest.error import UnstructuredIngestError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -32,19 +32,12 @@ from unstructured_platform_plugins.schema.json_schema import (
 
 FileDataType = Union[FileData, BatchFileData]
 
-logger = logging.getLogger("uvicorn.error")
-
-
-def file_data_from_dict(data: dict) -> FileDataType:
-    try:
-        return BatchFileData.model_validate(data)
-    except ValidationError:
-        logger.debug(f"{data} not valid for batch file data")
-    return FileData.model_validate(data)
-
 
 class EtlApiException(Exception):
     pass
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class MessageChannels(BaseModel):

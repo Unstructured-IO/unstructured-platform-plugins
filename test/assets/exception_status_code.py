@@ -1,7 +1,7 @@
 """Test assets for testing exception handling with various status_code scenarios."""
 
 from fastapi import HTTPException
-from utic_public_types.plugins.errors import UnstructuredIngestError
+from unstructured_ingest.error import UnstructuredIngestError
 
 
 class ExceptionWithNoneStatusCode(Exception):
