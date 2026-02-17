@@ -1,3 +1,7 @@
+## 0.0.42
+
+* **Remove unstructured-ingest dependency**
+
 ## 0.0.39
 
 * **Remove wrap_error logic as exceptions are categorized in unstructured-ingest**
