@@ -1,7 +1,7 @@
 from typing import Any
 
 from pydantic import BaseModel, Field
-from utic_public_types.plugins.file_data import FileData
+from unstructured_ingest.data_types.file_data import FileData
 
 
 class NewRecord(BaseModel):
