@@ -30,9 +30,11 @@ def get_settings() -> OtelSettings:
     service_name = os.environ.get(OTEL_SERVICE_NAME, "unknown_service")
     trace_exporters = os.environ.get(OTEL_TRACES_EXPORTER)
     trace_exporters = trace_exporters.split(",") if trace_exporters else []
+    trace_exporters = [e for e in trace_exporters if e != "none"]
 
     metric_exporters = os.environ.get(OTEL_METRICS_EXPORTER)
     metric_exporters = metric_exporters.split(",") if metric_exporters else []
+    metric_exporters = [e for e in metric_exporters if e != "none"]
     return OtelSettings(
         service_name=service_name,
         trace_exporters=trace_exporters,
@@ -40,8 +42,11 @@ def get_settings() -> OtelSettings:
     )
 
 
-def get_trace_provider() -> TracerProvider:
+def get_trace_provider() -> TracerProvider | None:
     settings = get_settings()
+    if not settings["trace_exporters"]:
+        return None
+
     provider = TracerProvider(resource=Resource({SERVICE_NAME: settings["service_name"]}))
 
     for trace_exporter_type in settings["trace_exporters"]:
@@ -50,8 +55,11 @@ def get_trace_provider() -> TracerProvider:
     return provider
 
 
-def get_metric_provider() -> MeterProvider:
+def get_metric_provider() -> MeterProvider | None:
     settings = get_settings()
+    if not settings["metric_exporters"]:
+        return None
+
     readers = []
     for metric_exporter_type in settings["metric_exporters"]:
         readers.append(_get_metrics_reader(exporter_type=metric_exporter_type))
