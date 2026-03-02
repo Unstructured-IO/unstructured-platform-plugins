@@ -1,4 +1,3 @@
-import pytest
 from opentelemetry.environment_variables import OTEL_METRICS_EXPORTER, OTEL_TRACES_EXPORTER
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.trace import TracerProvider
@@ -62,7 +61,6 @@ def test_wrap_in_fastapi_does_not_crash_with_none_otel_exporters(monkeypatch):
     monkeypatch.setenv(OTEL_METRICS_EXPORTER, "none")
 
     from test.assets.async_typed_dict_response import async_sample_function
-
     from unstructured_platform_plugins.etl_uvicorn.api_generator import wrap_in_fastapi
 
     # Should not raise NotImplementedError
