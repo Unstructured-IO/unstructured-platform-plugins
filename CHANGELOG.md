@@ -1,3 +1,7 @@
+## 0.0.42
+
+* **Support "none" value for OTEL_TRACES_EXPORTER and OTEL_METRICS_EXPORTER** - Filter "none" from exporter lists and return None when no exporters configured to properly disable OpenTelemetry instrumentation
+
 ## 0.0.39
 
 * **Remove wrap_error logic as exceptions are categorized in unstructured-ingest**
