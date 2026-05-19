@@ -1,3 +1,10 @@
+## 0.0.44
+
+* **Ignore SIGTERM in plugin uvicorn Servers**: plugin webservers now keep
+  serving on SIGTERM so their controller container can finish dispatching
+  in-flight work before the pod is SIGKILLed. SIGINT still terminates for
+  local-dev Ctrl-C.
+
 ## 0.0.43
 
 * **Deprecate `wrap_in_fastapi`** - Mark `wrap_in_fastapi` (and the `etl-uvicorn` CLI it backs) as deprecated via PEP 702 `@deprecated`. New plugins should build a FastAPI app directly with explicit handlers for the plugin contract routes.
