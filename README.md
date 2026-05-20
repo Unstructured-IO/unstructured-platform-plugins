@@ -2,9 +2,8 @@
  ![CI](https://github.com/Unstructured-IO/unstructured-platform-plugins/actions/workflows/ci.yml/badge.svg?branch=main)
 
 > **Deprecation notice:** `wrap_in_fastapi` (and the `etl-uvicorn` CLI it backs)
-> is deprecated. New plugins should hand-roll their own FastAPI app with
-> explicit `/invoke`, `/schema`, `/precheck`, `/id`, and `/ready` handlers.
-> The `chunker` plugin in `platform-plugins` is the reference pattern.
+> is deprecated. New plugins should build a FastAPI app directly with explicit
+> handlers for the plugin contract routes (`/invoke`, `/schema`, `/id`, etc.).
 
 Information about how to build custom plugins to integrate with Unstructured Platform.
 

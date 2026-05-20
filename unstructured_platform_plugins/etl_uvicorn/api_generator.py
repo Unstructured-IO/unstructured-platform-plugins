@@ -110,9 +110,8 @@ def update_filedata_model(new_type) -> BaseModel:
 
 
 @deprecated(
-    "wrap_in_fastapi is deprecated; hand-roll a FastAPI app instead. "
-    "See platform_plugins/plugins/chunker for the reference pattern "
-    "(explicit /invoke, /schema, /precheck, /id, /ready handlers)."
+    "wrap_in_fastapi is deprecated; build a FastAPI app directly with "
+    "explicit handlers for the plugin contract routes."
 )
 def wrap_in_fastapi(
     func: Callable,
