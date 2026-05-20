@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
+from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from unstructured_ingest.error import UnstructuredIngestError
 from uvicorn.config import LOG_LEVELS
@@ -108,6 +109,10 @@ def update_filedata_model(new_type) -> BaseModel:
     return new_filedata_model
 
 
+@deprecated(
+    "wrap_in_fastapi is deprecated; build a FastAPI app directly with "
+    "explicit handlers for the plugin contract routes."
+)
 def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
