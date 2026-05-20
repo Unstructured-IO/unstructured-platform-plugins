@@ -1,3 +1,7 @@
+## 0.0.43
+
+* **Deprecate `wrap_in_fastapi`** - Mark `wrap_in_fastapi` (and the `etl-uvicorn` CLI it backs) as deprecated via PEP 702 `@deprecated`. New plugins should hand-roll their own FastAPI app — see the `chunker` plugin in `platform-plugins` for the reference pattern.
+
 ## 0.0.42
 
 * **Support "none" value for OTEL_TRACES_EXPORTER and OTEL_METRICS_EXPORTER** - Filter "none" from exporter lists and return None when no exporters configured to properly disable OpenTelemetry instrumentation
