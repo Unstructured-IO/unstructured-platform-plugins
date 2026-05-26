@@ -1,11 +1,32 @@
+import asyncio
+import signal
+import threading
 from dataclasses import dataclass, field
 from typing import IO, Any, Optional
 
 import click
+import uvicorn
 from uvicorn.config import LOGGING_CONFIG, Config, RawConfigParser
 from uvicorn.main import main, run
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
+
+
+def _install_signal_handlers_ignoring_sigterm(self: uvicorn.Server) -> None:
+    # uvicorn's default load-sheds 504 on SIGTERM, which races with controllers
+    # trying to drain in-flight work during pod shutdown. Plugin webservers are
+    # expected to outlive their controller container so SIGKILL — not SIGTERM —
+    # ends the process. SIGINT is preserved so local Ctrl-C still works.
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        loop.add_signal_handler(signal.SIGINT, self.handle_exit, signal.SIGINT, None)
+    except NotImplementedError:
+        signal.signal(signal.SIGINT, self.handle_exit)
+
+
+uvicorn.Server.install_signal_handlers = _install_signal_handlers_ignoring_sigterm
 
 
 @dataclass
