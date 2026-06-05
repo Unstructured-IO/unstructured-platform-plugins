@@ -16,10 +16,13 @@ def test_cli_uses_graceful_server_with_finite_timeout():
         def run(self):
             captured["ran"] = True
 
-    with patch(
-        "unstructured_platform_plugins.etl_uvicorn.main.generate_fast_api",
-        return_value=lambda *a, **k: None,
-    ), patch("unstructured_platform_plugins.etl_uvicorn.main.GracefulServer", _FakeServer):
+    with (
+        patch(
+            "unstructured_platform_plugins.etl_uvicorn.main.generate_fast_api",
+            return_value=lambda *a, **k: None,
+        ),
+        patch("unstructured_platform_plugins.etl_uvicorn.main.GracefulServer", _FakeServer),
+    ):
         runner = CliRunner()
         result = runner.invoke(
             get_command(),

@@ -1,3 +1,18 @@
+## 0.0.45
+
+* **SIGTERM cancellation support (GracefulServer + CancellationToken)**: plugin uvicorn
+  servers now observe SIGTERM cooperatively via `GracefulServer`, which signals a
+  process-global cancellation event on shutdown. A read-only `CancellationToken` is
+  injected into plugin run-funcs that declare a `cancellation_token` parameter; plugins
+  that do not declare the parameter are unaffected. A finite default
+  `timeout_graceful_shutdown` bounds the drain window. `PluginShutdown` exceptions map
+  to HTTP 503 so the controller can detect and terminalize in-flight records as
+  RETRYABLE rather than leaving them abandoned.
+* **Revert 0.0.44 SIGTERM-ignore behavior (INFRA-726)**: plugin uvicorn servers no
+  longer monkey-patch out SIGTERM. The original concern — orphaned in-flight invocations
+  on drain — is now handled controller-side: the controller abandons the in-flight invoke
+  and terminalizes the record as RETRYABLE so the ETL job lease can reclaim it.
+
 ## 0.0.44
 
 * **Ignore SIGTERM in plugin uvicorn Servers**: plugin webservers now keep

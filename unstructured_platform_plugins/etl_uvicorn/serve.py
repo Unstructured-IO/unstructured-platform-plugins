@@ -5,9 +5,7 @@ import uvicorn
 
 from unstructured_platform_plugins.etl_uvicorn.shutdown import request_shutdown
 
-DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN: int = int(
-    os.getenv("UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN", "30")
-)
+DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN: int = int(os.getenv("UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN", "30"))
 
 
 class GracefulServer(uvicorn.Server):
