@@ -1,11 +1,16 @@
+import sys
 from dataclasses import dataclass, field
 from typing import IO, Any, Optional
 
 import click
 from uvicorn.config import LOGGING_CONFIG, Config, RawConfigParser
-from uvicorn.main import main, run
+from uvicorn.main import main
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
+from unstructured_platform_plugins.etl_uvicorn.serve import (
+    DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN,
+    GracefulServer,
+)
 
 
 @dataclass
@@ -53,9 +58,16 @@ def get_command() -> click.Command:
             precheck_str=precheck_app,
             precheck_method=precheck_app_method,
         )
-        # Explicitly map values that are manipulated in the original
-        # call to run(), preventing **kwargs reference
-        run(
+        # `app_dir` and `version` are CLI-only params that uvicorn.Config does not accept.
+        # `app_dir` adjusts sys.path; `version` is --version flag metadata only.
+        app_dir = kwargs.pop("app_dir", None)
+        kwargs.pop("version", None)
+        if app_dir is not None:
+            sys.path.insert(0, app_dir)
+
+        if kwargs.get("timeout_graceful_shutdown") is None:
+            kwargs["timeout_graceful_shutdown"] = DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN
+        config = Config(
             fastapi_app,
             log_config=LOGGING_CONFIG if log_config is None else log_config,
             reload_dirs=reload_dirs or None,
@@ -64,6 +76,7 @@ def get_command() -> click.Command:
             headers=[header.split(":", 1) for header in headers],  # type: ignore[misc]
             **kwargs,
         )
+        GracefulServer(config).run()
 
     cmd = api_wrapper
     cmd.params = main.params
