@@ -18,6 +18,10 @@ from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
+from unstructured_platform_plugins.etl_uvicorn.shutdown import (
+    PluginShutdown,
+    get_cancellation_token,
+)
 from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_func,
     get_input_schema,
@@ -72,12 +76,15 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
 
 def check_precheck_func(precheck_func: Callable):
     sig = inspect.signature(precheck_func)
-    inputs = sig.parameters.values()
+    allowed = {"usage", "cancellation_token"}
+    for name, param in sig.parameters.items():
+        if name == "self":
+            continue
+        if name not in allowed:
+            raise ValueError(
+                f"unexpected precheck input '{name}'; only {sorted(allowed)} are available"
+            )
     outputs = sig.return_annotation
-    if len(inputs) == 1:
-        i = inputs[0]
-        if i.name != "usage" or i.annotation is list:
-            raise ValueError("the only input available for precheck is usage which must be a list")
     if outputs not in [None, sig.empty]:
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
 
@@ -149,7 +156,9 @@ def _wrap_in_fastapi(
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
-    input_schema = get_input_schema(func, omit=["usage", "filedata_meta", "message_channels"])
+    input_schema = get_input_schema(
+        func, omit=["usage", "filedata_meta", "message_channels", "cancellation_token"]
+    )
     input_schema_model = schema_to_base_model(input_schema)
 
     logging.getLogger("etl_uvicorn.fastapi")
@@ -169,6 +178,8 @@ def _wrap_in_fastapi(
             request_dict["message_channels"] = message_channels
         if "filedata_meta" in inspect.signature(func).parameters:
             request_dict["filedata_meta"] = filedata_meta
+        if "cancellation_token" in inspect.signature(func).parameters:
+            request_dict["cancellation_token"] = get_cancellation_token()
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
@@ -188,6 +199,21 @@ def _wrap_in_fastapi(
                                 ).model_dump_json()
                                 + "\n"
                             )
+                    except PluginShutdown:
+                        logger.info("plugin aborted in-flight streaming work on shutdown")
+                        yield (
+                            InvokeResponse(
+                                usage=usage,
+                                message_channels=message_channels,
+                                filedata_meta=filedata_meta_model.model_validate(
+                                    filedata_meta.model_dump()
+                                ),
+                                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                status_code_text="plugin shutdown: in-flight work aborted",
+                            ).model_dump_json()
+                            + "\n"
+                        )
+                        return
                     except Exception as e:
                         logger.error(f"Failure streaming response: {e}", exc_info=True)
                         yield (
@@ -215,6 +241,16 @@ def _wrap_in_fastapi(
                     output=output,
                     file_data=request_dict.get("file_data", None),
                 )
+        except PluginShutdown:
+            logger.info("plugin aborted in-flight work on shutdown")
+            return InvokeResponse(
+                usage=usage,
+                message_channels=message_channels,
+                filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code_text="plugin shutdown: in-flight work aborted",
+                file_data=request_dict.get("file_data", None),
+            )
         except HTTPException as exc:
             logger.error(
                 f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
