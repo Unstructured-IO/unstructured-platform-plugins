@@ -33,3 +33,25 @@ def test_handle_exit_sets_cancellation_event_and_delegates():
 def test_default_timeout_is_finite():
     assert isinstance(DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN, int)
     assert DEFAULT_TIMEOUT_GRACEFUL_SHUTDOWN > 0
+
+
+def test_serve_constructs_graceful_server_with_passed_timeout():
+    """serve() must build a GracefulServer whose Config carries the caller's timeout."""
+    from unittest.mock import patch
+
+    from unstructured_platform_plugins.etl_uvicorn.serve import serve
+
+    captured = {}
+
+    class _FakeServer:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def run(self):
+            captured["ran"] = True
+
+    with patch("unstructured_platform_plugins.etl_uvicorn.serve.GracefulServer", _FakeServer):
+        serve(_dummy_app, port=9999, timeout_graceful_shutdown=7)
+
+    assert captured.get("ran") is True
+    assert captured["config"].timeout_graceful_shutdown == 7

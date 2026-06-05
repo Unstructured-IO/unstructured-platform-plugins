@@ -76,10 +76,11 @@ def get_command() -> click.Command:
             headers=[header.split(":", 1) for header in headers],  # type: ignore[misc]
             **kwargs,
         )
+        # reload / multi-worker supervisors are intentionally unsupported for plugin containers
         GracefulServer(config).run()
 
     cmd = api_wrapper
-    cmd.params = main.params
+    cmd.params = list(main.params)
     cmd.params.extend(
         [
             click.Option(

@@ -8,6 +8,7 @@ from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn import utils
+from unstructured_platform_plugins.etl_uvicorn.api_generator import check_precheck_func
 
 
 def test_get_func_simple():
@@ -148,3 +149,65 @@ def test_map_inputs_error():
 
     with pytest.raises(ValueError):
         utils.map_inputs(func=fn, raw_inputs=inputs)
+
+
+# ---------------------------------------------------------------------------
+# check_precheck_func
+# ---------------------------------------------------------------------------
+
+
+def test_check_precheck_func_zero_args():
+    """A precheck with no parameters is valid."""
+
+    def precheck():
+        pass
+
+    check_precheck_func(precheck)  # must not raise
+
+
+def test_check_precheck_func_usage_param():
+    """A precheck that accepts `usage` is valid."""
+
+    def precheck(usage):
+        pass
+
+    check_precheck_func(precheck)
+
+
+def test_check_precheck_func_cancellation_token_param():
+    """A precheck that accepts `cancellation_token` is valid."""
+
+    def precheck(cancellation_token):
+        pass
+
+    check_precheck_func(precheck)
+
+
+def test_check_precheck_func_bound_method_with_self():
+    """Bound methods expose `self` in their signature; it must be silently skipped."""
+
+    class _Helper:
+        def precheck(self):
+            pass
+
+    check_precheck_func(_Helper().precheck)
+
+
+def test_check_precheck_func_rejects_unknown_param():
+    """An unrecognised parameter name must raise ValueError."""
+
+    def precheck(some_unknown_param):
+        pass
+
+    with pytest.raises(ValueError, match="unexpected precheck input"):
+        check_precheck_func(precheck)
+
+
+def test_check_precheck_func_rejects_non_none_return_annotation():
+    """A non-None return annotation must raise ValueError."""
+
+    def precheck() -> str:
+        return "oops"
+
+    with pytest.raises(ValueError, match="no output should exist"):
+        check_precheck_func(precheck)
