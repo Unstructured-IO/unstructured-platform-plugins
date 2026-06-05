@@ -77,7 +77,7 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
 def check_precheck_func(precheck_func: Callable):
     sig = inspect.signature(precheck_func)
     allowed = {"usage", "cancellation_token"}
-    for name, param in sig.parameters.items():
+    for name in sig.parameters:
         if name == "self":
             continue
         if name not in allowed:

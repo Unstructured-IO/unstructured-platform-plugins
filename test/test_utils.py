@@ -131,6 +131,15 @@ def test_map_inputs():
     assert mapped_inputs == expected
 
 
+def test_get_schema_dict_omits_cancellation_token():
+    """get_schema_dict must not expose cancellation_token in inputs (affects plugin-id hash)."""
+    from test.assets.cancellation_token_sync import CancelAwareSync
+
+    job = CancelAwareSync()
+    schema = utils.get_schema_dict(job.run)
+    assert "cancellation_token" not in schema["inputs"]
+
+
 def test_map_inputs_error():
     def fn(a: FileData) -> None:
         pass
