@@ -11,6 +11,10 @@ from unstructured_ingest.data_types.file_data import (
     SourceIdentifiers,
 )
 
+from test.assets.cancellation_token_async import CancelAwareAsync
+from test.assets.cancellation_token_asyncgen import CancelAwareAsyncGen
+from test.assets.cancellation_token_sync import CancelAwareSync
+from unstructured_platform_plugins.etl_uvicorn import shutdown
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,
     UsageData,
@@ -470,3 +474,89 @@ def test_streaming_unstructured_ingest_error_with_none_status_code():
         "Async gen test UnstructuredIngestError with None status_code"
         in invoke_response.status_code_text
     )
+
+
+# ── CancellationToken / PluginShutdown tests ──────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _reset_shutdown():
+    shutdown.reset_for_tests()
+    yield
+    shutdown.reset_for_tests()
+
+
+@pytest.mark.parametrize("job_cls", [CancelAwareSync, CancelAwareAsync])
+def test_cancellation_token_not_in_invoke_schema(job_cls):
+    job = job_cls()
+    app = wrap_in_fastapi(func=job.run, plugin_id=job.id())
+    client = TestClient(app)
+    schema = client.get("/schema").json()
+    assert "cancellation_token" not in schema["inputs"]
+    openapi = client.get("/openapi.json").json()
+    invoke_schema = str(openapi["paths"]["/invoke"])
+    assert "cancellation_token" not in invoke_schema
+
+
+@pytest.mark.parametrize("job_cls", [CancelAwareSync, CancelAwareAsync])
+def test_invoke_succeeds_when_not_shutting_down(job_cls):
+    job = job_cls()
+    app = wrap_in_fastapi(func=job.run, plugin_id=job.id())
+    client = TestClient(app)
+    resp = client.post("/invoke", json={"value": 41}).json()
+    assert resp["status_code"] == 200
+    assert resp["output"]["value"] == 42
+
+
+@pytest.mark.parametrize("job_cls", [CancelAwareSync, CancelAwareAsync])
+def test_invoke_returns_503_shutdown_abort_when_cancelled(job_cls):
+    job = job_cls()
+    app = wrap_in_fastapi(func=job.run, plugin_id=job.id())
+    client = TestClient(app)
+    shutdown.request_shutdown()
+    resp = client.post("/invoke", json={"value": 41}).json()
+    assert resp["status_code"] == 503
+    assert "shutdown" in (resp["status_code_text"] or "").lower()
+
+
+def test_streaming_invoke_succeeds_when_not_shutting_down():
+    """Happy-path: async-gen run func streams a 200 row when shutdown is not requested."""
+    import json
+
+    job = CancelAwareAsyncGen()
+    app = wrap_in_fastapi(func=job.run, plugin_id=job.id())
+    client = TestClient(app)
+
+    resp = client.post("/invoke", json={"value": 41})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 1
+
+    row = InvokeResponse.model_validate(json.loads(lines[0]))
+    assert row.status_code == 200
+    assert row.output == {"value": 42}
+
+
+def test_streaming_invoke_returns_503_shutdown_abort_when_cancelled():
+    """Streaming PluginShutdown handler: yields a 503 row and stops when shutdown is requested."""
+    import json
+
+    job = CancelAwareAsyncGen()
+    app = wrap_in_fastapi(func=job.run, plugin_id=job.id())
+    client = TestClient(app)
+
+    shutdown.request_shutdown()
+    resp = client.post("/invoke", json={"value": 41})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 1
+
+    row = InvokeResponse.model_validate(json.loads(lines[0]))
+    assert row.status_code == 503
+    assert "shutdown" in (row.status_code_text or "").lower()

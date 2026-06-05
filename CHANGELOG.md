@@ -1,3 +1,18 @@
+## 0.0.45
+
+* **Cooperative SIGTERM shutdown for plugin webservers**: plugin uvicorn servers now run under
+  a `GracefulServer` that signals a process-global cancellation event when SIGTERM/SIGINT is
+  received. Run-functions that declare a `cancellation_token` parameter receive a read-only token
+  they can poll between units of work and raise `PluginShutdown` to abort promptly; this maps to an
+  HTTP 503 shutdown-abort response. A finite default `timeout_graceful_shutdown` (30s, overridable
+  via `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN`) bounds uvicorn's drain window — previously unbounded.
+  Plugins that do not declare `cancellation_token` are unaffected.
+* **Remove the inert SIGTERM-ignore signal patch**: 0.0.44 set `uvicorn.Server.install_signal_handlers`
+  to a SIGINT-only handler, but the pinned uvicorn (0.37) removed that method in favor of
+  `capture_signals()`, so the patch never took effect and plugins already handled SIGTERM normally.
+  It is removed to avoid a misleading mental model; prompt shutdown now comes from the finite
+  graceful-shutdown timeout plus the `GracefulServer` cancellation hook above.
+
 ## 0.0.44
 
 * **Ignore SIGTERM in plugin uvicorn Servers**: plugin webservers now keep
