@@ -299,7 +299,6 @@ def _wrap_in_fastapi(
         resp = SchemaOutputResponse(inputs=schema["inputs"], outputs=schema["outputs"])
         return resp
 
-    @fastapi_app.get("/precheck")
     async def run_precheck() -> InvokePrecheckResponse:
         if precheck_func:
             fn_response = await wrap_fn(func=precheck_func)
@@ -310,6 +309,9 @@ def _wrap_in_fastapi(
             )
         else:
             return InvokePrecheckResponse(status_code=status.HTTP_200_OK, usage=[])
+
+    fastapi_app.get("/check")(run_precheck)
+    fastapi_app.get("/precheck")(run_precheck)
 
     @fastapi_app.get("/id")
     async def get_id() -> str:

@@ -44,6 +44,15 @@ mock_file_data = [
 ]
 
 
+def test_check_alias_matches_precheck_noop_response():
+    from test.assets.empty_input_and_response import SampleClass as TestClass
+
+    test_class = TestClass()
+    client = TestClient(wrap_in_fastapi(func=test_class.do_nothing, plugin_id="mock_plugin"))
+
+    assert client.get("/check").json() == client.get("/precheck").json()
+
+
 @pytest.mark.parametrize(
     "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
 )
