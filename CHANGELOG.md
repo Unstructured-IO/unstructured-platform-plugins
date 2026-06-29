@@ -1,3 +1,7 @@
+## 0.0.45
+
+* **Add `/check` as the plugin connection-check route**: generated plugin apps now expose `/check` alongside `/precheck` for the v3 plugin contract.
+
 ## 0.0.44
 
 * **Ignore SIGTERM in plugin uvicorn Servers**: plugin webservers now keep
