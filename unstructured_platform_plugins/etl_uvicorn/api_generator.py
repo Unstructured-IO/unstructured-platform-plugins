@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import hashlib
 import inspect
 import json
@@ -18,6 +19,9 @@ from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
 from unstructured_platform_plugins.etl_uvicorn.otel import get_metric_provider, get_trace_provider
+from unstructured_platform_plugins.etl_uvicorn.invocation_context import (
+    _invocation_settings_var,
+)
 from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_func,
     get_input_schema,
@@ -67,7 +71,12 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
     if inspect.iscoroutinefunction(func):
         return await func(**kwargs)
     else:
-        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
+        # copy_context() so ContextVars (e.g. invocation_settings) reach the
+        # worker thread; run_in_executor does not propagate them by itself.
+        ctx = contextvars.copy_context()
+        return await asyncio.get_event_loop().run_in_executor(
+            None, partial(ctx.run, partial(func, **kwargs))
+        )
 
 
 def check_precheck_func(precheck_func: Callable):
@@ -149,8 +158,22 @@ def _wrap_in_fastapi(
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
-    input_schema = get_input_schema(func, omit=["usage", "filedata_meta", "message_channels"])
+    input_schema = get_input_schema(
+        func, omit=["usage", "filedata_meta", "message_channels", "invocation_settings"]
+    )
     input_schema_model = schema_to_base_model(input_schema)
+    # First-class per-invoke settings: every generated /invoke accepts an optional
+    # invocation_settings object, independent of the wrapped function's signature.
+    # Delivery: passed as a kwarg when the function declares the parameter,
+    # otherwise exposed through get_invocation_settings() for the call's duration.
+    input_schema_model = create_model(
+        "InvokeEnvelope",
+        __base__=input_schema_model,
+        invocation_settings=(Optional[dict[str, Any]], None),
+    )
+    func_declares_invocation_settings = (
+        "invocation_settings" in inspect.signature(func).parameters
+    )
 
     logging.getLogger("etl_uvicorn.fastapi")
 
@@ -261,6 +284,10 @@ def _wrap_in_fastapi(
             log_func_and_body(func=func, body=request.json())
             # Create dictionary from pydantic model while preserving underlying types
             request_dict = {f: getattr(request, f) for f in request.model_fields}
+            invocation_settings = request_dict.pop("invocation_settings", None)
+            if func_declares_invocation_settings:
+                request_dict["invocation_settings"] = invocation_settings
+            settings_token = _invocation_settings_var.set(invocation_settings)
             # Make sure nested classes get instantiated correctly
             if "file_data" in request_dict:
                 request_dict["file_data"] = file_data_from_dict(
@@ -269,7 +296,10 @@ def _wrap_in_fastapi(
             map_inputs(func=func, raw_inputs=request_dict)
             if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
                 logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
-            return await wrap_fn(func=func, kwargs=request_dict)
+            try:
+                return await wrap_fn(func=func, kwargs=request_dict)
+            finally:
+                _invocation_settings_var.reset(settings_token)
 
     else:
 
@@ -314,6 +344,10 @@ def _wrap_in_fastapi(
     @fastapi_app.get("/id")
     async def get_id() -> str:
         return plugin_id
+
+    @fastapi_app.get("/capabilities")
+    async def get_capabilities() -> dict[str, Any]:
+        return {"invocation_settings": True}
 
     # Run initial schema validation
     try:
