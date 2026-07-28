@@ -8,6 +8,11 @@
   An absent body now resolves each field to its own default, which is what the signature already
   promised. Plugins with at least one required field are unchanged: a missing `file_data` still
   fails validation rather than arriving as `None`.
+* **An optional `file_data` no longer 500s when absent.** The wrapper converted `file_data` from its
+  dict form unconditionally, so a plugin declaring it optional hit
+  `AttributeError: 'NoneType' object has no attribute 'model_dump'` on any body that omitted it —
+  previously reachable via `POST {}`, and via a bodyless request once the change above landed. `None`
+  is now passed through untouched and only a real value is converted.
 
 ## 0.0.44
 

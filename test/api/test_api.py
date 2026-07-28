@@ -539,6 +539,41 @@ def test_required_param_still_rejects_an_absent_body():
     assert client.post("/invoke", json={"element_dicts": "x"}).status_code == 200
 
 
+class _FileDataEcho(BaseModel):
+    identifier: Optional[str] = None
+
+
+def _optional_file_data(
+    file_data: Optional[FileData] = None, invocation_context: Optional[dict] = None
+) -> _FileDataEcho:
+    return _FileDataEcho(identifier=None if file_data is None else file_data.identifier)
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_optional_file_data_is_preserved_as_none(body):
+    # `file_data` is converted from its dict form for the wrapped function, but it can legitimately
+    # be absent. Calling `.model_dump()` on None raised before `wrap_fn` ran, turning the
+    # optional-body contract into a 500 rather than a normal response.
+    client = TestClient(wrap_in_fastapi(func=_optional_file_data, plugin_id="mock_plugin"))
+
+    kwargs = {} if body is None else {"json": body}
+    resp = client.post("/invoke", **kwargs)
+
+    assert resp.status_code == 200
+    invoke_response = InvokeResponse.model_validate(resp.json())
+    invoke_response.generic_validation()
+    assert invoke_response.output == {"identifier": None}
+
+
+def test_optional_file_data_is_still_converted_when_supplied():
+    client = TestClient(wrap_in_fastapi(func=_optional_file_data, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": mock_file_data[0].model_dump()})
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output == {"identifier": "mock file data"}
+
+
 def test_no_param_plugin_still_accepts_a_bodyless_post():
     client = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin"))
 

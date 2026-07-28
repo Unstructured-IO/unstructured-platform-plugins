@@ -258,9 +258,13 @@ def _wrap_in_fastapi(
         log_func_and_body(func=func, body=request.json())
         # Create dictionary from pydantic model while preserving underlying types
         request_dict = {f: getattr(request, f) for f in request.model_fields}
-        # Make sure nested classes get instantiated correctly
-        if "file_data" in request_dict:
-            request_dict["file_data"] = file_data_from_dict(request_dict["file_data"].model_dump())
+        # Make sure nested classes get instantiated correctly. `file_data` can legitimately be None
+        # -- a plugin may declare it optional, and then an absent or partial body leaves it unset --
+        # so convert only a real value. Calling `.model_dump()` on None would raise before `wrap_fn`
+        # runs, turning the optional-body contract into a 500.
+        file_data = request_dict.get("file_data")
+        if file_data is not None:
+            request_dict["file_data"] = file_data_from_dict(file_data.model_dump())
         map_inputs(func=func, raw_inputs=request_dict)
         if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
             logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
