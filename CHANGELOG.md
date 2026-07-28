@@ -1,3 +1,14 @@
+## 0.0.45
+
+* **`/invoke` no longer demands a body from a plugin whose parameters are all optional.** A pydantic
+  body parameter with no default is mandatory even when every field inside the model is optional, so
+  such a plugin required a body that no caller has a reason to populate — and before it grew those
+  parameters the same plugin accepted no body at all, which made adding one look
+  backward-compatible while silently flipping the HTTP contract to 422 for every bodyless caller.
+  An absent body now resolves each field to its own default, which is what the signature already
+  promised. Plugins with at least one required field are unchanged: a missing `file_data` still
+  fails validation rather than arriving as `None`.
+
 ## 0.0.44
 
 * **Ignore SIGTERM in plugin uvicorn Servers**: plugin webservers now keep

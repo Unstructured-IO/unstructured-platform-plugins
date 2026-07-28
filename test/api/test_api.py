@@ -470,3 +470,79 @@ def test_streaming_unstructured_ingest_error_with_none_status_code():
         "Async gen test UnstructuredIngestError with None status_code"
         in invoke_response.status_code_text
     )
+
+
+# --- optional-body contract -------------------------------------------------------------------
+#
+# A pydantic body parameter with no default is mandatory even when every field inside the model is
+# optional. A plugin whose parameters are ALL optional therefore used to demand a body that no
+# caller has a reason to populate: before it grew those parameters the same plugin accepted no body
+# at all, so adding one silently flipped its HTTP contract and every bodyless caller got a 422.
+
+
+class _Echo(BaseModel):
+    settings: Optional[dict] = None
+    context: Optional[dict] = None
+    received: Optional[str] = None
+
+
+def _all_optional(
+    invocation_settings: Optional[dict] = None, invocation_context: Optional[dict] = None
+) -> _Echo:
+    return _Echo(settings=invocation_settings, context=invocation_context)
+
+
+def _no_params() -> _Echo:
+    return _Echo(received="ok")
+
+
+def _has_required(element_dicts: str, invocation_context: Optional[dict] = None) -> _Echo:
+    return _Echo(received=element_dicts)
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_all_optional_params_accept_absent_or_empty_body(body):
+    client = TestClient(wrap_in_fastapi(func=_all_optional, plugin_id="mock_plugin"))
+
+    kwargs = {} if body is None else {"json": body}
+    resp = client.post("/invoke", **kwargs)
+
+    assert resp.status_code == 200
+    invoke_response = InvokeResponse.model_validate(resp.json())
+    invoke_response.generic_validation()
+    # Each field resolves to its own default, which is what the signature already promised.
+    assert invoke_response.output == {"settings": None, "context": None, "received": None}
+
+
+def test_all_optional_params_still_receive_a_populated_body():
+    # The tolerance must not swallow a body that IS supplied, or the wire-settings plane silently
+    # stops working while every request keeps returning 200.
+    client = TestClient(wrap_in_fastapi(func=_all_optional, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"invocation_settings": {"k": "v"}})
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output == {
+        "settings": {"k": "v"},
+        "context": None,
+        "received": None,
+    }
+
+
+def test_required_param_still_rejects_an_absent_body():
+    # The tolerance must not leak into plugins that genuinely need input: a downloader invoked
+    # without `file_data` has to fail loudly rather than receive None.
+    client = TestClient(wrap_in_fastapi(func=_has_required, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").status_code == 422
+    assert client.post("/invoke", json={}).status_code == 422
+    assert client.post("/invoke", json={"element_dicts": "x"}).status_code == 200
+
+
+def test_no_param_plugin_still_accepts_a_bodyless_post():
+    client = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output["received"] == "ok"
