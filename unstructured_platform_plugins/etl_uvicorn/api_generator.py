@@ -254,22 +254,48 @@ def _wrap_in_fastapi(
                 file_data=request_dict.get("file_data", None),
             )
 
-    if input_schema_model.model_fields:
+    async def run_job_with_body(request: BaseModel) -> ResponseType:
+        log_func_and_body(func=func, body=request.json())
+        # Create dictionary from pydantic model while preserving underlying types
+        request_dict = {f: getattr(request, f) for f in request.model_fields}
+        # Make sure nested classes get instantiated correctly. `file_data` can legitimately be None
+        # -- a plugin may declare it optional, and then an absent or partial body leaves it unset --
+        # so convert only a real value. Calling `.model_dump()` on None would raise before `wrap_fn`
+        # runs, turning the optional-body contract into a 500.
+        file_data = request_dict.get("file_data")
+        if file_data is not None:
+            request_dict["file_data"] = file_data_from_dict(file_data.model_dump())
+        map_inputs(func=func, raw_inputs=request_dict)
+        if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
+            logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
+        return await wrap_fn(func=func, kwargs=request_dict)
+
+    # A pydantic body parameter with no default is mandatory even when every field inside the model
+    # is optional. So a plugin whose parameters are ALL optional would demand a body that no caller
+    # has a reason to populate -- and before it grew those parameters that same plugin accepted no
+    # body at all, so adding one flips the HTTP contract while looking backward-compatible. Default
+    # the body in that case: an absent body resolves each field to its own default, which is exactly
+    # what the function signature already promises.
+    #
+    # A plugin with at least one required field keeps a mandatory body, so an indexer that needs
+    # `file_data` still fails validation rather than silently receiving None.
+    body_is_optional = input_schema_model.model_fields and not any(
+        field.is_required() for field in input_schema_model.model_fields.values()
+    )
+
+    if body_is_optional:
+
+        @fastapi_app.post("/invoke", response_model=InvokeResponse)
+        async def run_job(request: Optional[input_schema_model] = None) -> ResponseType:
+            return await run_job_with_body(
+                request if request is not None else input_schema_model()
+            )
+
+    elif input_schema_model.model_fields:
 
         @fastapi_app.post("/invoke", response_model=InvokeResponse)
         async def run_job(request: input_schema_model) -> ResponseType:
-            log_func_and_body(func=func, body=request.json())
-            # Create dictionary from pydantic model while preserving underlying types
-            request_dict = {f: getattr(request, f) for f in request.model_fields}
-            # Make sure nested classes get instantiated correctly
-            if "file_data" in request_dict:
-                request_dict["file_data"] = file_data_from_dict(
-                    request_dict["file_data"].model_dump()
-                )
-            map_inputs(func=func, raw_inputs=request_dict)
-            if logger.level == LOG_LEVELS.get("trace", logging.NOTSET):
-                logger.log(level=logger.level, msg=f"passing inputs to function: {request_dict}")
-            return await wrap_fn(func=func, kwargs=request_dict)
+            return await run_job_with_body(request)
 
     else:
 
