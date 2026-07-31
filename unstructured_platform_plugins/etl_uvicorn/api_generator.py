@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import hashlib
 import inspect
 import json
@@ -14,6 +15,7 @@ from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from unstructured_ingest.error import UnstructuredIngestError
+from utic_invocation_settings import add_metadata_route, install_invocation_envelope
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -67,7 +69,13 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
     if inspect.iscoroutinefunction(func):
         return await func(**kwargs)
     else:
-        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
+        # run_in_executor does not propagate contextvars, so without copying the context a sync
+        # plugin would observe request-scoped bindings (current_invocation_settings and friends)
+        # as absent and could take an unintended fallback path.
+        ctx = contextvars.copy_context()
+        return await asyncio.get_event_loop().run_in_executor(
+            None, ctx.run, partial(func, **kwargs)
+        )
 
 
 def check_precheck_func(precheck_func: Callable):
@@ -117,9 +125,15 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     try:
-        return _wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)
+        return _wrap_in_fastapi(
+            func=func,
+            plugin_id=plugin_id,
+            precheck_func=precheck_func,
+            invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+        )
     except Exception as e:
         logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
         raise EtlApiException(e) from e
@@ -129,6 +143,7 @@ def _wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
@@ -347,6 +362,19 @@ def _wrap_in_fastapi(
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
 
+    # The middleware handles the reserved /invoke fields (invocation_settings and
+    # invocation_context) outside the generated handler schema. It resolves sealed settings with
+    # the configured private key and exposes both values through request-scoped accessors. The
+    # sealed-settings capability remains opt-in because it asserts that the wrapped function
+    # consumes current_invocation_settings(), not merely that the host can resolve it. Repeated
+    # installation is safe: the middleware installs once and the last /metadata registration wins.
+    add_metadata_route(
+        fastapi_app,
+        identifier=plugin_id,
+        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+    )
+    install_invocation_envelope(fastapi_app)
+
     FastAPIInstrumentor.instrument_app(
         fastapi_app, tracer_provider=get_trace_provider(), meter_provider=get_metric_provider()
     )
@@ -361,6 +389,7 @@ def generate_fast_api(
     id_method: Optional[str] = None,
     precheck_str: Optional[str] = None,
     precheck_method: Optional[str] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -379,4 +408,9 @@ def generate_fast_api(
     elif precheck_method:
         precheck_func = get_func(instance, precheck_method)
 
-    return wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)
+    return wrap_in_fastapi(
+        func=func,
+        plugin_id=plugin_id,
+        precheck_func=precheck_func,
+        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+    )
