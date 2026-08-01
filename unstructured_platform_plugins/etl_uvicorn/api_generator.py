@@ -15,7 +15,6 @@ from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
 from unstructured_ingest.error import UnstructuredIngestError
-from utic_invocation_settings import add_metadata_route, install_invocation_envelope
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -27,6 +26,10 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_plugin_id,
     get_schema_dict,
     map_inputs,
+)
+from unstructured_platform_plugins.invocation_settings import (
+    add_metadata_route,
+    install_invocation_envelope,
 )
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (

@@ -4,9 +4,9 @@ from typing import Optional
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-from utic_invocation_settings import current_invocation_settings
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import wrap_in_fastapi
+from unstructured_platform_plugins.invocation_settings import current_invocation_settings
 
 
 class _Echo(BaseModel):

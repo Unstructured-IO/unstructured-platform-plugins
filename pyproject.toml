@@ -23,7 +23,7 @@ dependencies = [
     "fastapi",
     "click",
     "unstructured-ingest",
-    "utic-invocation-settings>=0.3.0,<1.0.0",
+    "utic-invocation-settings>=0.4.0,<1.0.0",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-exporter-otlp-proto-grpc",
     "dataclasses-json"

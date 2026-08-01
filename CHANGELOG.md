@@ -1,14 +1,21 @@
 ## 0.1.0
 
-* **The wrapper now installs the invocation-settings envelope handling itself.** Every wrapped app
-  gets the `utic-invocation-settings` ASGI middleware and a `/metadata` route at construction: the
-  reserved `invocation_settings` / `invocation_context` fields are handled outside the generated
-  handler schema, a sealed `dag_node_settings` member is decrypted with the configured private
-  key, and the resolved values are exposed request-scoped through
-  `current_invocation_settings()` / `current_invocation_context()`. Missing fields preserve the
-  existing fallback behavior; when `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` is enabled,
-  missing or plaintext settings fail closed. Repeated installation is safe: the middleware
-  installs once and the last `/metadata` registration wins.
+* **This package now owns the `/invoke` transport for the reserved fields.**
+  `unstructured_platform_plugins.invocation_settings` holds the ASGI middleware, the `/metadata`
+  capability route, and the request-scoped binding. It sits on `utic-invocation-settings >=0.4.0`,
+  which owns the *contract* — which keys carry settings, how a sealed envelope is told from
+  plaintext, and what an absent field is allowed to mean. That split is deliberate: the absence
+  rule is a security decision and belongs next to the crypto it governs, while body buffering and
+  route registration belong here, where a web framework is already a dependency. Nothing about the
+  wire format is decided in this repository.
+* **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
+  `invocation_context` fields are handled outside the generated handler schema, a sealed
+  `dag_node_settings` member is opened with this pod's mounted workload key, and the resolved
+  values are exposed through `current_invocation_settings()` / `current_invocation_context()`.
+  An absent field preserves the existing fallback behaviour; under
+  `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` missing or plaintext settings fail closed.
+  Repeated installation is safe: the middleware installs once and the last `/metadata`
+  registration wins.
 * **New opt-in `invoke_with_sealed_dag_node_settings` advertisement.** Pass
   `invoke_with_sealed_dag_node_settings=True` to `wrap_in_fastapi` / `generate_fast_api` (or
   `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
@@ -16,6 +23,13 @@
   A plugin that serves a custom `/metadata` payload must register it via `add_metadata_route`
   (which replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction
   is shadowed by the wrapper's earlier registration.
+* **Resolution runs off the event loop.** A cold resolve is an RSA unwrap of a couple of
+  milliseconds and this middleware fronts every invoke on the pod, so it is dispatched with
+  `asyncio.to_thread` rather than blocking the loop.
+* **Failures map through the library's blame taxonomy**, not a flat 500: only a caller-fixable
+  fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
+  mount are all 5xx, which keeps the controller's blame classification off the customer. Responses
+  carry the error's class name and never its message, which can embed request-controlled values.
 * **Sync plugin functions now observe request-scoped context.** `invoke_func` copies the current
   context into the executor thread; previously `run_in_executor` dropped contextvars, so a sync
   function reading a request-scoped binding (such as `current_invocation_settings()`) would see
