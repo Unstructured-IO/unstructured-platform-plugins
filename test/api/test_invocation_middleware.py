@@ -226,16 +226,18 @@ class TestInvocationEnvelopeMiddleware:
         assert sent[0]["status"] == 422
         assert b"invocation_settings" in sent[1]["body"]
 
-    def test_context_with_an_unreadable_schema_version_is_rejected(self):
+    def test_context_with_an_unreadable_schema_version_fails_as_platform_error(self):
         # Absence means "older caller, use the boot settings"; a context this plugin cannot read
-        # must not be downgraded to that.
+        # must not be downgraded to that. And it is deployment skew, not a caller fault — a 422
+        # would let an upstream blame classifier pin version skew on the customer.
         downstream, sent = _run_middleware(
             json.dumps({"invocation_context": {"schema_version": "99"}}).encode()
         )
 
         assert downstream.body is None
-        assert sent[0]["status"] == 422
+        assert sent[0]["status"] == 500
         assert b"invocation_context" in sent[1]["body"]
+        assert b"UnsupportedContextVersionError" in sent[1]["body"]
 
     def test_malformed_context_is_rejected(self):
         downstream, sent = _run_middleware(
