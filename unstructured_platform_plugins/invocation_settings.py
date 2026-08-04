@@ -14,12 +14,16 @@ built purely from the wrapped function, and a plugin reads the fields through
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
-from collections.abc import Iterator
+import threading
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -35,6 +39,8 @@ from utic_invocation_settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 _METADATA_PATH = "/metadata"
 _INVOKE_PATH = "/invoke"
@@ -241,3 +247,64 @@ def install_invocation_envelope(app: FastAPI) -> None:
         return
     app.state.invocation_envelope_installed = True
     app.add_middleware(InvocationEnvelopeMiddleware)
+
+
+def settings_cache_key(invocation_settings: Mapping[str, Any]) -> str:
+    """Digest of the canonical settings JSON, safe as a cache key for secret-bearing payloads."""
+    return hashlib.sha256(json.dumps(invocation_settings, sort_keys=True).encode()).hexdigest()
+
+
+class SettingsScopedCache:
+    """Bind expensive derived state (clients, models, handlers) to the settings that built it.
+
+    A plugin consuming ``current_invocation_settings()`` builds its handler per distinct settings
+    payload instead of once at boot, and construction typically does network work (model
+    resolution, prechecks), so results are memoized keyed by ``settings_cache_key``. Both bounds
+    matter under shared tenancy: size caps how many distinct payloads stay live, and age evicts
+    state built from credentials that may since have been rotated — eviction driven only by the
+    count of distinct payloads can take arbitrarily long on a quiet pod.
+
+    Thread-safe for lookups and inserts. Concurrent misses for the same settings may build twice;
+    the extra build is wasted work, never wrong state.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = 15 * 60,
+        maxsize: int = 32,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be positive")
+        if maxsize < 1:
+            raise ValueError("maxsize must be at least 1")
+        self._ttl_seconds = float(ttl_seconds)
+        self._maxsize = maxsize
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+
+    def get_or_build(self, invocation_settings: Mapping[str, Any], build: Callable[[], T]) -> T:
+        """Return the cached value for these settings, building it on a miss."""
+        key = settings_cache_key(invocation_settings)
+        now = self._clock()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is not None:
+                expires_at, value = entry
+                if now < expires_at:
+                    self._entries.move_to_end(key)
+                    return value
+                del self._entries[key]
+        value = build()
+        with self._lock:
+            self._entries[key] = (now + self._ttl_seconds, value)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._maxsize:
+                self._entries.popitem(last=False)
+        return value
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
