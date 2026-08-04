@@ -92,8 +92,15 @@ def add_metadata_route(
     `/metadata` is the plugin API spec's own discovery surface (`PluginMetadataOutput`): capability
     flags are strings in its `capabilities` list, which is where the controller looks before
     forwarding the reserved fields — no controller-private probe route.
-    `invoke_with_sealed_dag_node_settings` additionally advertises that the plugin can be invoked
-    with a sealed `dag_node_settings` member and open it itself.
+
+    The two tiers make different claims. `invocation_settings` / `invocation_context` are
+    *transport-level* facts, advertised unconditionally because the installed middleware makes
+    them true for every wrapped app: the reserved fields will be received, resolved, and bound —
+    or the request failed. They say nothing about whether the handler reads the binding.
+    `invoke_with_sealed_dag_node_settings` is the *consumption* claim — this plugin opens sealed
+    `dag_node_settings` itself and its handler acts on the result — and stays a per-plugin opt-in
+    set in the same change that makes it true, because it is the flag that invites the controller
+    to seal settings to this pod in place of any other settings source.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
     is registered once. A host wrapper may register with default capabilities at app construction
@@ -213,11 +220,19 @@ class InvocationEnvelopeMiddleware:
             try:
                 invocation_context = extract_context(parsed)
             except InvocationSettingsError as exc:
-                # Includes an unknown schema_version: a producer this plugin cannot read fails
-                # loudly here rather than running with silently absent identity. The message is
-                # truncated because it can embed request-controlled values.
+                # A context this plugin cannot read fails loudly here rather than running with
+                # silently absent identity. Status comes from the blame taxonomy: a malformed
+                # field is the caller's 422, but an unreadable schema_version is deployment skew
+                # between platform components and must not read as a caller fault. The log line is
+                # truncated because the message can embed request-controlled values.
                 logger.warning("rejecting invalid %s: %.200s", RESERVED_CONTEXT_KEY, exc)
-                await _send_json(send, 422, {"detail": f"Invalid field: {RESERVED_CONTEXT_KEY}"})
+                status = http_status_for(exc)
+                detail = (
+                    f"Invalid field: {RESERVED_CONTEXT_KEY}"
+                    if status == 422
+                    else f"Unusable {RESERVED_CONTEXT_KEY}: {type(exc).__name__}"
+                )
+                await _send_json(send, status, {"detail": detail})
                 return
 
         # The joined body and its parsed tree can be tens of MB and are not needed past this point;
