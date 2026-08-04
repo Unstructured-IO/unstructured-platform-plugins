@@ -224,7 +224,9 @@ class TestInvocationEnvelopeMiddleware:
 
         assert downstream.body is None
         assert sent[0]["status"] == 422
-        assert b"invocation_settings" in sent[1]["body"]
+        body = json.loads(sent[1]["body"])
+        assert "invocation_settings" in body["detail"]
+        assert body["reason"] == "malformed_envelope"
 
     def test_context_with_an_unreadable_schema_version_fails_as_platform_error(self):
         # Absence means "older caller, use the boot settings"; a context this plugin cannot read
@@ -236,8 +238,10 @@ class TestInvocationEnvelopeMiddleware:
 
         assert downstream.body is None
         assert sent[0]["status"] == 500
-        assert b"invocation_context" in sent[1]["body"]
-        assert b"UnsupportedContextVersionError" in sent[1]["body"]
+        body = json.loads(sent[1]["body"])
+        assert "invocation_context" in body["detail"]
+        assert "UnsupportedContextVersionError" in body["detail"]
+        assert body["reason"] == "unsupported_context_version"
 
     def test_malformed_context_is_rejected(self):
         downstream, sent = _run_middleware(

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
-from unstructured_ingest.error import UnstructuredIngestError
+from unstructured_ingest.error import UnstructuredIngestError, UserError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -214,6 +214,11 @@ def _wrap_in_fastapi(
         filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
+        # Who must act on a failure: "user" only when the plugin raised the UserError family —
+        # a fault in something the customer owns (their file, their credentials, their provider).
+        # Absent means not-the-customer's: an orchestrator must never infer customer fault from
+        # the status code alone, which also carries transport semantics.
+        blame: Optional[str] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
@@ -311,6 +316,7 @@ def _wrap_in_fastapi(
                 status_code=status_code_of(exc),
                 status_code_text=_safe_str(exc),
                 failure_category=failure_category_of(exc),
+                blame="user" if isinstance(exc, UserError) else None,
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:

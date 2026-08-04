@@ -33,6 +33,7 @@ from utic_invocation_settings import (
     RESERVED_ENVELOPE_KEY,
     InvocationContext,
     InvocationSettingsError,
+    MalformedEnvelopeError,
     extract_context,
     http_status_for,
     resolve_invocation_settings,
@@ -196,7 +197,14 @@ class InvocationEnvelopeMiddleware:
         if isinstance(parsed, dict):
             raw_settings = parsed.get(RESERVED_ENVELOPE_KEY)
             if RESERVED_ENVELOPE_KEY in parsed and not isinstance(raw_settings, dict):
-                await _send_json(send, 422, {"detail": f"Invalid field: {RESERVED_ENVELOPE_KEY}"})
+                await _send_json(
+                    send,
+                    422,
+                    {
+                        "detail": f"Invalid field: {RESERVED_ENVELOPE_KEY}",
+                        "reason": MalformedEnvelopeError.reason,
+                    },
+                )
                 return
         # Resolved even when the field — or the whole JSON object — is absent:
         # resolve_invocation_settings owns the FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS
@@ -210,11 +218,11 @@ class InvocationEnvelopeMiddleware:
             # Class name only — never envelope contents, and never the exception's own message,
             # which can embed request-controlled values.
             logger.warning("unusable %s payload: %s", RESERVED_ENVELOPE_KEY, type(exc).__name__)
-            await _send_json(
-                send,
-                http_status_for(exc),
-                {"detail": f"Unusable invocation settings: {type(exc).__name__}"},
-            )
+            body = {"detail": f"Unusable invocation settings: {type(exc).__name__}"}
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, str):
+                body["reason"] = reason
+            await _send_json(send, http_status_for(exc), body)
             return
         if isinstance(parsed, dict):
             try:
@@ -232,7 +240,7 @@ class InvocationEnvelopeMiddleware:
                     if status == 422
                     else f"Unusable {RESERVED_CONTEXT_KEY}: {type(exc).__name__}"
                 )
-                await _send_json(send, status, {"detail": detail})
+                await _send_json(send, status, {"detail": detail, "reason": exc.reason})
                 return
 
         # The joined body and its parsed tree can be tens of MB and are not needed past this point;
