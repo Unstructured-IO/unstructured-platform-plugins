@@ -137,3 +137,15 @@ async def async_gen_function_raises_unstructured_ingest_error_with_none_status_c
     error = UnstructuredIngestError("Async gen test UnstructuredIngestError with None status_code")
     error.status_code = None
     raise error
+
+
+def function_raises_user_error() -> None:
+    from unstructured_ingest.error import UserError
+
+    raise UserError("Customer-owned resource rejected the request")
+
+
+def function_raises_provider_error() -> None:
+    from unstructured_ingest.error import ProviderError
+
+    raise ProviderError("Upstream provider failed")
