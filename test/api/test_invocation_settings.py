@@ -18,7 +18,7 @@ def _echo_settings(content: str) -> _Echo:
     return _Echo(content=content, settings=current_invocation_settings())
 
 
-def test_metadata_route_is_registered_with_default_capabilities():
+def test_metadata_route_advertises_every_capability():
     client = TestClient(wrap_in_fastapi(func=_echo_settings, plugin_id="mock_plugin"))
 
     resp = client.get("/metadata")
@@ -26,21 +26,11 @@ def test_metadata_route_is_registered_with_default_capabilities():
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["identifier"] == "mock_plugin"
-    assert payload["capabilities"] == ["invocation_settings", "invocation_context"]
-
-
-def test_sealed_capability_is_opt_in():
-    client = TestClient(
-        wrap_in_fastapi(
-            func=_echo_settings,
-            plugin_id="mock_plugin",
-            invoke_with_sealed_dag_node_settings=True,
-        )
-    )
-
-    payload = client.get("/metadata").json()
-
-    assert "invoke_with_sealed_dag_node_settings" in payload["capabilities"]
+    assert payload["capabilities"] == [
+        "invocation_settings",
+        "invocation_context",
+        "invoke_with_sealed_dag_node_settings",
+    ]
 
 
 def test_reserved_settings_field_binds_without_appearing_in_schema():

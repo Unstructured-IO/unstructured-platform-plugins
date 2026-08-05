@@ -128,14 +128,12 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     try:
         return _wrap_in_fastapi(
             func=func,
             plugin_id=plugin_id,
             precheck_func=precheck_func,
-            invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
         )
     except Exception as e:
         logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
@@ -146,7 +144,6 @@ def _wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
@@ -371,17 +368,14 @@ def _wrap_in_fastapi(
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
 
-    # The middleware handles the reserved /invoke fields (invocation_settings and
+    # The route dependency handles the reserved /invoke fields (invocation_settings and
     # invocation_context) outside the generated handler schema. It resolves sealed settings with
-    # the configured private key and exposes both values through request-scoped accessors. The
-    # sealed-settings capability remains opt-in because it asserts that the wrapped function
-    # consumes current_invocation_settings(), not merely that the host can resolve it. Repeated
-    # installation is safe: the middleware installs once and the last /metadata registration wins.
-    add_metadata_route(
-        fastapi_app,
-        identifier=plugin_id,
-        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
-    )
+    # the configured private key and exposes both values through request-scoped accessors.
+    # Sealed per-invoke settings are the platform's required settings path, so the capability is
+    # advertised unconditionally: every wrapped plugin is expected to consume
+    # current_invocation_settings(). Repeated installation is safe: the dependency installs once
+    # and the last /metadata registration wins.
+    add_metadata_route(fastapi_app, identifier=plugin_id)
     install_invocation_envelope(fastapi_app)
 
     FastAPIInstrumentor.instrument_app(
@@ -398,7 +392,6 @@ def generate_fast_api(
     id_method: Optional[str] = None,
     precheck_str: Optional[str] = None,
     precheck_method: Optional[str] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -421,5 +414,4 @@ def generate_fast_api(
         func=func,
         plugin_id=plugin_id,
         precheck_func=precheck_func,
-        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
     )

@@ -1,13 +1,14 @@
 ## 0.1.0
 
 * **This package now owns the `/invoke` transport for the reserved fields.**
-  `unstructured_platform_plugins.invocation_settings` holds the ASGI middleware, the `/metadata`
-  capability route, the request-scoped binding, and `http_status_for` — the HTTP spelling of the
+  `unstructured_platform_plugins.invocation_settings` holds the `/invoke` binding dependency and
+  body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
+  — the HTTP spelling of the
   library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`,
   which owns the *settings contract* — which key carries settings, how a sealed envelope is told
   from plaintext, and what an absent field is allowed to mean. That split is deliberate: the
-  absence rule is a security decision and belongs next to the crypto it governs, while body
-  buffering and route registration belong here, where a web framework is already a dependency.
+  absence rule is a security decision and belongs next to the crypto it governs, while request
+  handling and route registration belong here, where a web framework is already a dependency.
   Nothing about the sealed-settings wire format is decided in this repository.
 * **This package now owns the `invocation_context` identity model.**
   `unstructured_platform_plugins.invocation_context` holds `InvocationContext`,
@@ -23,17 +24,25 @@
   values are exposed through `current_invocation_settings()` / `current_invocation_context()`.
   An absent field preserves the existing fallback behaviour; under
   `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` missing or plaintext settings fail closed.
-  Repeated installation is safe: the middleware installs once and the last `/metadata`
+  Repeated installation is safe: the dependency installs once and the last `/metadata`
   registration wins.
-* **New opt-in `invoke_with_sealed_dag_node_settings` advertisement.** Pass
-  `invoke_with_sealed_dag_node_settings=True` to `wrap_in_fastapi` / `generate_fast_api` (or
-  `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
-  it advertises that the application accepts and consumes sealed per-invocation settings.
-  A plugin that serves a custom `/metadata` payload must register it via `add_metadata_route`
-  (which replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction
-  is shadowed by the wrapper's earlier registration.
+* **Extraction is a route dependency.** `bind_invocation_envelope` reads the body the framework
+  buffered and parsed (`request.json()` is Starlette-cached), so the `/invoke` body is held and
+  decoded exactly once per request. `install_invocation_envelope` attaches the dependency to the
+  registered POST `/invoke` route(s), registers the failure response shape, and installs
+  `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413 over the cap without
+  buffering; it must be called after the `/invoke` route is registered and raises if none exists.
+* **Sealed settings have no opt-out.** `/metadata` advertises `invocation_settings`,
+  `invocation_context` and `invoke_with_sealed_dag_node_settings` unconditionally: per-invoke
+  sealed settings are the platform's required settings path, and every plugin on this version is
+  expected to consume `current_invocation_settings()` in place of any other settings source. The
+  `invoke_with_sealed_dag_node_settings` parameter on `wrap_in_fastapi` / `generate_fast_api` and
+  the `--sealed-dag-node-settings` CLI flag are gone. A plugin that serves a custom `/metadata`
+  payload must register it via `add_metadata_route` (which replaces the wrapper's route) — a
+  plain `@app.get("/metadata")` added after construction is shadowed by the wrapper's earlier
+  registration.
 * **Resolution runs off the event loop.** A cold resolve is an RSA unwrap of a couple of
-  milliseconds and this middleware fronts every invoke on the pod, so it is dispatched with
+  milliseconds and this dependency fronts every invoke on the pod, so it is dispatched with
   `asyncio.to_thread` rather than blocking the loop.
 * **Failures map through the library's blame taxonomy**, not a flat 500: only a caller-fixable
   fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
