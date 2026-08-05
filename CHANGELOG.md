@@ -2,12 +2,21 @@
 
 * **This package now owns the `/invoke` transport for the reserved fields.**
   `unstructured_platform_plugins.invocation_settings` holds the ASGI middleware, the `/metadata`
-  capability route, and the request-scoped binding. It sits on `utic-invocation-settings >=0.4.0`,
-  which owns the *contract* — which keys carry settings, how a sealed envelope is told from
-  plaintext, and what an absent field is allowed to mean. That split is deliberate: the absence
-  rule is a security decision and belongs next to the crypto it governs, while body buffering and
-  route registration belong here, where a web framework is already a dependency. Nothing about the
-  wire format is decided in this repository.
+  capability route, the request-scoped binding, and `http_status_for` — the HTTP spelling of the
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`,
+  which owns the *settings contract* — which key carries settings, how a sealed envelope is told
+  from plaintext, and what an absent field is allowed to mean. That split is deliberate: the
+  absence rule is a security decision and belongs next to the crypto it governs, while body
+  buffering and route registration belong here, where a web framework is already a dependency.
+  Nothing about the sealed-settings wire format is decided in this repository.
+* **This package now owns the `invocation_context` identity model.**
+  `unstructured_platform_plugins.invocation_context` holds `InvocationContext`,
+  `extract_context`, `dimensions`, `RESERVED_CONTEXT_KEY`, `DIMENSION_FIELDS`,
+  `SUPPORTED_CONTEXT_VERSIONS` and `UnsupportedContextVersionError`. The context is `/invoke`
+  protocol identity — no crypto, no secrets — so it lives with the plugin protocol. Its errors
+  subclass the shared `InvocationSettingsError` taxonomy, so hosts classify context failures with
+  the same `reason`/`blame` machinery as settings failures. This module is the public home for
+  the surface `utic-invocation-settings 0.2.x` carried and its `0.3.0` removed.
 * **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
   `invocation_context` fields are handled outside the generated handler schema, a sealed
   `dag_node_settings` member is opened with this pod's mounted workload key, and the resolved
