@@ -1,9 +1,13 @@
 """Transport for the reserved `/invoke` fields: ASGI middleware, `/metadata`, request binding.
 
-The *contract* — which keys carry settings, how a sealed envelope is told from plaintext, and what
-an absent field is allowed to mean — lives in `utic_invocation_settings.invoke`, next to the crypto
-it governs. This module is the other half: getting the payload off the wire and the result to the
-handler. It owns no policy; every decision about a payload it delegates.
+The *settings contract* — which key carries settings, how a sealed envelope is told from
+plaintext, and what an absent field is allowed to mean — lives in
+`utic_invocation_settings.invoke`, next to the crypto it governs; every decision about a settings
+payload is delegated there. The *identity contract* — the `invocation_context` model — is
+`/invoke` protocol rather than settings security and lives in this package's
+`invocation_context` module. This module is the delivery mechanism for both: getting the payloads
+off the wire and the results to the handler, and spelling the shared `blame` taxonomy as HTTP
+statuses.
 
 The reserved fields are a first-class HTTP contract independent of the generated input schema. They
 never appear in a plugin's declared signature, so `wrap_in_fastapi` keeps producing a handler model
@@ -29,17 +33,32 @@ from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
 from utic_invocation_settings import (
     INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY,
-    RESERVED_CONTEXT_KEY,
     RESERVED_ENVELOPE_KEY,
-    InvocationContext,
+    Blame,
     InvocationSettingsError,
     MalformedEnvelopeError,
-    extract_context,
-    http_status_for,
     resolve_invocation_settings,
 )
 
+from unstructured_platform_plugins.invocation_context import (
+    RESERVED_CONTEXT_KEY,
+    InvocationContext,
+    extract_context,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def http_status_for(error: BaseException) -> int:
+    """The HTTP status this transport answers for a failed resolution, from ``blame``.
+
+    One rule, the one the library README states normatively: ``Blame.CALLER`` -> 422, everything
+    else -> 500. The line it draws is whether a different request would work. Sealing drift, an
+    envelope for another recipient and a broken local mount are all 5xx, which keeps a controller's
+    blame classification off the customer, whose request was fine. Anything that is not a
+    classified error is a 500: an unclassified failure is not the caller's.
+    """
+    return 422 if getattr(error, "blame", None) is Blame.CALLER else 500
 
 T = TypeVar("T")
 
