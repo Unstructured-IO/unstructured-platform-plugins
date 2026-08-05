@@ -56,6 +56,7 @@ def get_command() -> click.Command:
         plugin_id_method: Optional[str] = None,
         precheck_app: Optional[str] = None,
         precheck_app_method: Optional[str] = None,
+        sealed_dag_node_settings: bool = False,
         **kwargs,
     ):
         # Make sure logging is configured before the call to run() so any setup has the same format
@@ -73,6 +74,7 @@ def get_command() -> click.Command:
             id_method=plugin_id_method,
             precheck_str=precheck_app,
             precheck_method=precheck_app_method,
+            invoke_with_sealed_dag_node_settings=sealed_dag_node_settings,
         )
         # Explicitly map values that are manipulated in the original
         # call to run(), preventing **kwargs reference
@@ -129,6 +131,14 @@ def get_command() -> click.Command:
                 help="If provided, points to a method to call on a class. "
                 "If precheck-app not provided, assumes method "
                 "lives on main class passes in.",
+            ),
+            click.Option(
+                ["--sealed-dag-node-settings"],
+                is_flag=True,
+                default=False,
+                help="Advertise the invoke_with_sealed_dag_node_settings capability on "
+                "/metadata. Set only for a plugin that consumes per-invoke settings "
+                "through current_invocation_settings().",
             ),
         ]
     )

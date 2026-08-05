@@ -24,6 +24,7 @@ class InvokeResponse(BaseModel):
     status_code: int
     filedata_meta: FileDataMeta
     status_code_text: Optional[str] = None
+    blame: Optional[str] = None
     output: Optional[Any] = None
     file_data: Optional[Union[FileData, BatchFileData]] = None
 
@@ -218,6 +219,38 @@ def test_http_exception_handling(file_data):
     # HTTPException should be handled by the HTTPException handler
     assert invoke_response.status_code == 404
     assert invoke_response.status_code_text == "Not found"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_user_error_declares_user_blame(file_data):
+    """Only the UserError family may claim the failure is the customer's to fix."""
+    from test.assets.exception_status_code import function_raises_user_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.status_code >= 400
+    assert invoke_response.blame == "user"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_non_user_failures_declare_no_blame(file_data):
+    """Anything undeclared is not the customer's: an orchestrator must not infer customer fault
+    from the status code, which also carries transport semantics."""
+    from test.assets.exception_status_code import function_raises_provider_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.blame is None
 
 
 @pytest.mark.parametrize(

@@ -1,3 +1,50 @@
+## 0.1.0
+
+* **This package now owns the `/invoke` transport for the reserved fields.**
+  `unstructured_platform_plugins.invocation_settings` holds the ASGI middleware, the `/metadata`
+  capability route, the request-scoped binding, and `http_status_for` — the HTTP spelling of the
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`,
+  which owns the *settings contract* — which key carries settings, how a sealed envelope is told
+  from plaintext, and what an absent field is allowed to mean. That split is deliberate: the
+  absence rule is a security decision and belongs next to the crypto it governs, while body
+  buffering and route registration belong here, where a web framework is already a dependency.
+  Nothing about the sealed-settings wire format is decided in this repository.
+* **This package now owns the `invocation_context` identity model.**
+  `unstructured_platform_plugins.invocation_context` holds `InvocationContext`,
+  `extract_context`, `dimensions`, `RESERVED_CONTEXT_KEY`, `DIMENSION_FIELDS`,
+  `SUPPORTED_CONTEXT_VERSIONS` and `UnsupportedContextVersionError`. The context is `/invoke`
+  protocol identity — no crypto, no secrets — so it lives with the plugin protocol. Its errors
+  subclass the shared `InvocationSettingsError` taxonomy, so hosts classify context failures with
+  the same `reason`/`blame` machinery as settings failures. This module is the public home for
+  the surface `utic-invocation-settings 0.2.x` carried and its `0.3.0` removed.
+* **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
+  `invocation_context` fields are handled outside the generated handler schema, a sealed
+  `dag_node_settings` member is opened with this pod's mounted workload key, and the resolved
+  values are exposed through `current_invocation_settings()` / `current_invocation_context()`.
+  An absent field preserves the existing fallback behaviour; under
+  `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` missing or plaintext settings fail closed.
+  Repeated installation is safe: the middleware installs once and the last `/metadata`
+  registration wins.
+* **New opt-in `invoke_with_sealed_dag_node_settings` advertisement.** Pass
+  `invoke_with_sealed_dag_node_settings=True` to `wrap_in_fastapi` / `generate_fast_api` (or
+  `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
+  it advertises that the application accepts and consumes sealed per-invocation settings.
+  A plugin that serves a custom `/metadata` payload must register it via `add_metadata_route`
+  (which replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction
+  is shadowed by the wrapper's earlier registration.
+* **Resolution runs off the event loop.** A cold resolve is an RSA unwrap of a couple of
+  milliseconds and this middleware fronts every invoke on the pod, so it is dispatched with
+  `asyncio.to_thread` rather than blocking the loop.
+* **Failures map through the library's blame taxonomy**, not a flat 500: only a caller-fixable
+  fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
+  mount are all 5xx, which keeps the controller's blame classification off the customer. Responses
+  carry the error's class name and never its message, which can embed request-controlled values.
+* **Sync plugin functions now observe request-scoped context.** `invoke_func` copies the current
+  context into the executor thread; previously `run_in_executor` dropped contextvars, so a sync
+  function reading a request-scoped binding (such as `current_invocation_settings()`) would see
+  it as absent and could take an unintended fallback path.
+* **Python floor is now 3.11** (required by `utic-invocation-settings`).
+
 ## 0.0.45
 
 * **`/invoke` no longer demands a body from a plugin whose parameters are all optional.** A pydantic
