@@ -28,7 +28,10 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
 )
 from unstructured_platform_plugins.invocation_settings import (
     add_metadata_route,
+    current_invocation_context,
+    current_invocation_settings,
     install_invocation_envelope,
+    invocation_envelope,
 )
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
@@ -203,6 +206,9 @@ def _wrap_in_fastapi(
         logger.warning("usage data not an expected parameter, omitting")
 
     fastapi_app = FastAPI()
+    # Installation contributes a public router dependency, so it must happen before /invoke is
+    # registered. The dependency itself is a no-op for every other route.
+    install_invocation_envelope(fastapi_app)
 
     response_type = get_output_sig(func)
     filedata_meta_model = update_filedata_model(response_type)
@@ -241,12 +247,35 @@ def _wrap_in_fastapi(
             request_dict["message_channels"] = message_channels
         if "filedata_meta" in params:
             request_dict["filedata_meta"] = filedata_meta
+        bound_settings = current_invocation_settings()
+        bound_context = current_invocation_context()
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
                 async def _stream_response():
-                    try:
-                        async for output in func(**(request_dict or {})):
+                    # FastAPI 0.117 closes yield dependencies before iterating a
+                    # StreamingResponse. Re-enter the captured binding inside the generator so the
+                    # plugin sees the right request regardless of dependency-cleanup timing.
+                    with invocation_envelope(bound_settings, bound_context):
+                        try:
+                            async for output in func(**(request_dict or {})):
+                                yield (
+                                    InvokeResponse(
+                                        usage=usage,
+                                        message_channels=message_channels,
+                                        filedata_meta=filedata_meta_model.model_validate(
+                                            filedata_meta.model_dump()
+                                        ),
+                                        status_code=status.HTTP_200_OK,
+                                        output=output,
+                                        file_data=request_dict.get("file_data", None),
+                                    ).model_dump_json()
+                                    + "\n"
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Failure streaming response: {_safe_str(e)}", exc_info=True
+                            )
                             yield (
                                 InvokeResponse(
                                     usage=usage,
@@ -254,31 +283,19 @@ def _wrap_in_fastapi(
                                     filedata_meta=filedata_meta_model.model_validate(
                                         filedata_meta.model_dump()
                                     ),
-                                    status_code=status.HTTP_200_OK,
-                                    output=output,
-                                    file_data=request_dict.get("file_data", None),
+                                    status_code=status_code_of(e),
+                                    status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
+                                    failure_category=failure_category_of(e),
                                 ).model_dump_json()
                                 + "\n"
                             )
-                    except Exception as e:
-                        logger.error(f"Failure streaming response: {_safe_str(e)}", exc_info=True)
-                        yield (
-                            InvokeResponse(
-                                usage=usage,
-                                message_channels=message_channels,
-                                filedata_meta=filedata_meta_model.model_validate(
-                                    filedata_meta.model_dump()
-                                ),
-                                status_code=status_code_of(e),
-                                status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
-                                failure_category=failure_category_of(e),
-                            ).model_dump_json()
-                            + "\n"
-                        )
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                output = await invoke_func(func=func, kwargs=request_dict)
+                # Keep execution-scoped binding explicit for the same reason as the streaming
+                # branch; nested binding is harmless while the route dependency is still active.
+                with invocation_envelope(bound_settings, bound_context):
+                    output = await invoke_func(func=func, kwargs=request_dict)
                 return InvokeResponse(
                     usage=usage,
                     message_channels=message_channels,
@@ -424,18 +441,17 @@ def _wrap_in_fastapi(
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
 
-    # The middleware handles the reserved /invoke fields (invocation_settings and
+    # The route dependency handles the reserved /invoke fields (invocation_settings and
     # invocation_context) outside the generated handler schema. It resolves sealed settings with
-    # the configured private key and exposes both values through request-scoped accessors. The
-    # sealed-settings capability remains opt-in because it asserts that the wrapped function
-    # consumes current_invocation_settings(), not merely that the host can resolve it. Repeated
-    # installation is safe: the middleware installs once and the last /metadata registration wins.
+    # the configured private key and exposes both values through request-scoped accessors.
+    # The sealed-settings capability remains opt-in because it asserts that the wrapped function
+    # consumes current_invocation_settings(), not merely that the host can resolve it. The binding
+    # dependency was installed before route registration; the last /metadata registration wins.
     add_metadata_route(
         fastapi_app,
         identifier=plugin_id,
         invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
     )
-    install_invocation_envelope(fastapi_app)
 
     FastAPIInstrumentor.instrument_app(
         fastapi_app, tracer_provider=get_trace_provider(), meter_provider=get_metric_provider()

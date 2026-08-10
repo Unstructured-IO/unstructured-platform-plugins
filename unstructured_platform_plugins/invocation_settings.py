@@ -1,4 +1,4 @@
-"""Transport for the reserved `/invoke` fields: ASGI middleware, `/metadata`, request binding.
+"""Transport for the reserved `/invoke` fields: request dependency, `/metadata`, body cap.
 
 The *settings contract* — which key carries settings, how a sealed envelope is told from
 plaintext, and what an absent field is allowed to mean — lives in
@@ -9,10 +9,17 @@ payload is delegated there. The *identity contract* — the `invocation_context`
 off the wire and the results to the handler, and spelling the shared `blame` taxonomy as HTTP
 statuses.
 
-The reserved fields are a first-class HTTP contract independent of the generated input schema. They
-never appear in a plugin's declared signature, so `wrap_in_fastapi` keeps producing a handler model
-built purely from the wrapped function, and a plugin reads the fields through
+The reserved fields are a first-class HTTP contract independent of the generated input schema.
+They never appear in a plugin's declared signature, so `wrap_in_fastapi` keeps producing a handler
+model built purely from the wrapped function, and a plugin reads the fields through
 `current_invocation_settings()` / `current_invocation_context()` instead.
+
+Extraction runs in a route dependency (`bind_invocation_envelope`), so the `/invoke` body is
+buffered and parsed exactly once: Starlette caches both the bytes and the parsed JSON on the
+`Request`, and the dependency reads that cached parse. The request-size cap is the one concern
+that must sit below the framework — neither Starlette nor uvicorn bounds request-body size — and
+`InvokeBodyLimitMiddleware` enforces it by counting bytes as they stream through, without
+buffering.
 """
 
 from __future__ import annotations
@@ -24,12 +31,14 @@ import logging
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
+from starlette.requests import ClientDisconnect
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from utic_invocation_settings import (
     INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY,
@@ -60,13 +69,14 @@ def http_status_for(error: BaseException) -> int:
     """
     return 422 if getattr(error, "blame", None) is Blame.CALLER else 500
 
+
 T = TypeVar("T")
 
 _METADATA_PATH = "/metadata"
 _INVOKE_PATH = "/invoke"
 
-# Bounds middleware body buffering; generous because batch invokes carry an array of file_data
-# payloads. The framework buffers the same body afterward, so this cap is the only guard against
+# Bounds the /invoke request body; generous because batch invokes carry an array of file_data
+# payloads. Nothing below the framework buffers, so this cap is the only guard against
 # unbounded-memory requests.
 MAX_INVOKE_BODY_BYTES = 64 * 1024 * 1024
 
@@ -80,7 +90,7 @@ def current_invocation_settings() -> Optional[dict]:
 
     `None` means the field was genuinely absent — the only case in which a plugin may fall back to
     its boot-time settings. A field that arrived and could not be opened never reaches a handler:
-    the middleware fails the request first.
+    the binding dependency fails the request first.
     """
     return _INVOCATION.get()[0]
 
@@ -113,18 +123,14 @@ def add_metadata_route(
     flags are strings in its `capabilities` list, which is where the controller looks before
     forwarding the reserved fields — no controller-private probe route.
 
-    The two tiers make different claims. `invocation_settings` / `invocation_context` are
-    *transport-level* facts, advertised unconditionally because the installed middleware makes
-    them true for every wrapped app: the reserved fields will be received, resolved, and bound —
-    or the request failed. They say nothing about whether the handler reads the binding.
-    `invoke_with_sealed_dag_node_settings` is the *consumption* claim — this plugin opens sealed
-    `dag_node_settings` itself and its handler acts on the result — and stays a per-plugin opt-in
-    set in the same change that makes it true, because it is the flag that invites the controller
-    to seal settings to this pod in place of any other settings source.
+    `invocation_settings` and `invocation_context` are transport capabilities: installing the
+    dependency makes the host receive, resolve, and bind those fields. The sealed-settings
+    capability is stronger: it tells the controller that the plugin handler consumes the resolved
+    `dag_node_settings` in place of boot-time state, so it remains an explicit opt-in.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
-    is registered once. A host wrapper may register with default capabilities at app construction
-    and a plugin can still declare the sealed capability afterwards, with no route-order dependence.
+    is registered once. A host wrapper may register at app construction and a plugin can still
+    re-register with its own identifier afterwards, with no route-order dependence.
     """
     capabilities = [RESERVED_ENVELOPE_KEY, RESERVED_CONTEXT_KEY]
     if invoke_with_sealed_dag_node_settings:
@@ -147,6 +153,104 @@ def add_metadata_route(
         return app.state.plugin_metadata_payload
 
 
+class UnusableInvocationEnvelope(Exception):
+    """A reserved /invoke field arrived but cannot be used.
+
+    Raised by `bind_invocation_envelope` and answered by the handler
+    `install_invocation_envelope` registers, so the response shape — `detail` plus the library's
+    stable `reason` code as top-level siblings — stays what orchestrators parse, independent of
+    FastAPI's own error envelope.
+    """
+
+    def __init__(self, status_code: int, payload: dict):
+        super().__init__(payload.get("detail"))
+        self.status_code = status_code
+        self.payload = payload
+
+
+async def _unusable_envelope_response(
+    _request: Request, exc: UnusableInvocationEnvelope
+) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content=exc.payload)
+
+
+async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
+    """Resolve the reserved /invoke fields and bind them for the duration of the request.
+
+    Runs as a route dependency, after the framework has read the body: `request.json()` is
+    Starlette-cached, so the parse is shared with the framework's own body handling.
+    A reserved field that is present but unusable fails the request rather than being
+    treated as absent, because absence is the signal to fall back to the boot-time settings file:
+    degrading a malformed field to absence would quietly answer a request configured for one
+    tenant with whatever the pod happened to boot with. Under
+    `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` there is no settings file to fall back to,
+    so absent or plaintext settings fail too — as does any /invoke whose body is not a JSON
+    object, since such a body cannot carry the envelope a native pod requires.
+    """
+    # ASGI `path` is mount-relative and excludes a deployment root_path; request.url.path may
+    # include that prefix and would silently skip binding behind a rooted proxy deployment.
+    if request.method != "POST" or request.scope["path"] != _INVOKE_PATH:
+        yield
+        return
+
+    try:
+        parsed = await request.json()
+    except ValueError:
+        # Empty or malformed body: the framework's own validation answers for the body itself;
+        # for the reserved fields it is absence, which resolve_invocation_settings still judges
+        # (absence is a failure on a native pod).
+        parsed = None
+
+    raw_settings: Optional[Any] = None
+    if isinstance(parsed, dict):
+        raw_settings = parsed.get(RESERVED_ENVELOPE_KEY)
+        if RESERVED_ENVELOPE_KEY in parsed and not isinstance(raw_settings, dict):
+            raise UnusableInvocationEnvelope(
+                422,
+                {
+                    "detail": f"Invalid field: {RESERVED_ENVELOPE_KEY}",
+                    "reason": MalformedEnvelopeError.reason,
+                },
+            )
+    try:
+        # Off the event loop: a cold resolve is an RSA unwrap of a couple of milliseconds, and
+        # this dependency fronts every invoke on the pod.
+        invocation_settings = await asyncio.to_thread(resolve_invocation_settings, raw_settings)
+    except Exception as exc:
+        # Class name only — never envelope contents, and never the exception's own message,
+        # which can embed request-controlled values.
+        logger.warning("unusable %s payload: %s", RESERVED_ENVELOPE_KEY, type(exc).__name__)
+        payload = {"detail": f"Unusable invocation settings: {type(exc).__name__}"}
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, str):
+            payload["reason"] = reason
+        raise UnusableInvocationEnvelope(http_status_for(exc), payload) from exc
+
+    invocation_context: Optional[InvocationContext] = None
+    if isinstance(parsed, dict):
+        try:
+            invocation_context = extract_context(parsed)
+        except InvocationSettingsError as exc:
+            # A context this plugin cannot read fails loudly here rather than running with
+            # silently absent identity. Status comes from the blame taxonomy: a malformed
+            # field is the caller's 422, but an unreadable schema_version is deployment skew
+            # between platform components and must not read as a caller fault. The log line is
+            # truncated because the message can embed request-controlled values.
+            logger.warning("rejecting invalid %s: %.200s", RESERVED_CONTEXT_KEY, exc)
+            status = http_status_for(exc)
+            detail = (
+                f"Invalid field: {RESERVED_CONTEXT_KEY}"
+                if status == 422
+                else f"Unusable {RESERVED_CONTEXT_KEY}: {type(exc).__name__}"
+            )
+            raise UnusableInvocationEnvelope(
+                status, {"detail": detail, "reason": exc.reason}
+            ) from exc
+
+    with invocation_envelope(invocation_settings, invocation_context):
+        yield
+
+
 async def _send_json(send: Send, status_code: int, payload: dict) -> None:
     body = json.dumps(payload).encode()
     await send(
@@ -162,21 +266,14 @@ async def _send_json(send: Send, status_code: int, payload: dict) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-class InvocationEnvelopeMiddleware:
-    """Extract the reserved envelope fields from the raw POST /invoke body.
+class InvokeBodyLimitMiddleware:
+    """Reject a POST /invoke body over ``max_body_bytes`` with 413.
 
-    Pure ASGI rather than `BaseHTTPMiddleware`: the body has to be read before the framework parses
-    it and then replayed intact, which is exactly what the raw protocol allows and what a
-    request/response middleware would fight.
-
-    A reserved field that is present but unusable fails the request rather than being treated as
-    absent, because absence is the signal to fall back to the boot-time settings file: degrading a
-    malformed field to absence would quietly answer a request configured for one tenant with
-    whatever the pod happened to boot with. Under `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS`
-    there is no settings file to fall back to, so absent or plaintext settings fail too — as does
-    any /invoke whose body is not a JSON object, since such a body cannot carry the envelope a
-    native pod requires. A body over `max_body_bytes` is rejected with 413 before it can exhaust
-    memory.
+    Counts bytes as the framework consumes them; nothing is buffered here. When the count crosses
+    the cap the downstream read is answered with ``http.disconnect``, which aborts the framework's
+    body read before another byte is held, and the 413 is sent once the application has unwound.
+    This has to sit below the framework because neither Starlette nor uvicorn bounds request-body
+    size.
     """
 
     def __init__(self, app: ASGIApp, max_body_bytes: int = MAX_INVOKE_BODY_BYTES):
@@ -192,103 +289,72 @@ class InvocationEnvelopeMiddleware:
             await self.app(scope, receive, send)
             return
 
-        messages = []
-        buffered_bytes = 0
-        while True:
+        seen = 0
+        exceeded = False
+        response_started = False
+
+        async def counting_receive() -> dict:
+            nonlocal seen, exceeded
             message = await receive()
-            messages.append(message)
-            buffered_bytes += len(message.get("body", b""))
-            if buffered_bytes > self.max_body_bytes:
-                await _send_json(send, 413, {"detail": "Request body too large"})
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self.max_body_bytes:
+                    exceeded = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message: dict) -> None:
+            nonlocal response_started
+            if exceeded and not response_started:
+                # A response computed after the body was cut is answering a truncated request;
+                # drop it so the 413 below is what the caller sees. A response that started
+                # before the cap tripped keeps streaming — its start is already on the wire.
                 return
-            if message["type"] != "http.request" or not message.get("more_body"):
-                break
-        body = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.request")
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
 
         try:
-            parsed = json.loads(body) if body else None
-        except ValueError:
-            # Malformed JSON: forward unchanged so the framework returns its own error.
-            parsed = None
-
-        invocation_context: Optional[InvocationContext] = None
-        raw_settings: Optional[dict[str, Any]] = None
-        if isinstance(parsed, dict):
-            raw_settings = parsed.get(RESERVED_ENVELOPE_KEY)
-            if RESERVED_ENVELOPE_KEY in parsed and not isinstance(raw_settings, dict):
-                await _send_json(
-                    send,
-                    422,
-                    {
-                        "detail": f"Invalid field: {RESERVED_ENVELOPE_KEY}",
-                        "reason": MalformedEnvelopeError.reason,
-                    },
-                )
-                return
-        # Resolved even when the field — or the whole JSON object — is absent:
-        # resolve_invocation_settings owns the FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS
-        # policy, under which a bodyless or non-object invoke cannot carry the envelope a native
-        # pod requires and is a failure, not a fallback signal.
-        try:
-            # Off the event loop: a cold resolve is an RSA unwrap of a couple of milliseconds, and
-            # this middleware sits in front of every invoke on the pod.
-            invocation_settings = await asyncio.to_thread(resolve_invocation_settings, raw_settings)
-        except Exception as exc:
-            # Class name only — never envelope contents, and never the exception's own message,
-            # which can embed request-controlled values.
-            logger.warning("unusable %s payload: %s", RESERVED_ENVELOPE_KEY, type(exc).__name__)
-            body = {"detail": f"Unusable invocation settings: {type(exc).__name__}"}
-            reason = getattr(exc, "reason", None)
-            if isinstance(reason, str):
-                body["reason"] = reason
-            await _send_json(send, http_status_for(exc), body)
-            return
-        if isinstance(parsed, dict):
-            try:
-                invocation_context = extract_context(parsed)
-            except InvocationSettingsError as exc:
-                # A context this plugin cannot read fails loudly here rather than running with
-                # silently absent identity. Status comes from the blame taxonomy: a malformed
-                # field is the caller's 422, but an unreadable schema_version is deployment skew
-                # between platform components and must not read as a caller fault. The log line is
-                # truncated because the message can embed request-controlled values.
-                logger.warning("rejecting invalid %s: %.200s", RESERVED_CONTEXT_KEY, exc)
-                status = http_status_for(exc)
-                detail = (
-                    f"Invalid field: {RESERVED_CONTEXT_KEY}"
-                    if status == 422
-                    else f"Unusable {RESERVED_CONTEXT_KEY}: {type(exc).__name__}"
-                )
-                await _send_json(send, status, {"detail": detail, "reason": exc.reason})
-                return
-
-        # The joined body and its parsed tree can be tens of MB and are not needed past this point;
-        # the framework re-buffers and re-parses the replayed messages downstream, so holding these
-        # through the handler would double peak memory.
-        del body, parsed, raw_settings
-
-        async def replay() -> dict:
-            if messages:
-                return messages.pop(0)
-            # Buffer drained: proxy the original channel so downstream still observes
-            # http.disconnect.
-            return await receive()
-
-        with invocation_envelope(invocation_settings, invocation_context):
-            await self.app(scope, replay, send)
+            await self.app(scope, counting_receive, guarded_send)
+        except ClientDisconnect:
+            if not exceeded:
+                raise
+        except Exception:
+            # The cut body stream can surface downstream as something other than
+            # ClientDisconnect; once the cap is the cause, the 413 below is the answer.
+            if not exceeded:
+                raise
+        if exceeded and not response_started:
+            await _send_json(send, 413, {"detail": "Request body too large"})
 
 
-def install_invocation_envelope(app: FastAPI) -> None:
-    """Install out-of-schema envelope extraction on a FastAPI app.
+def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_BODY_BYTES) -> None:
+    """Install reserved-field binding before registering a FastAPI app's routes.
 
-    Idempotent per app: a host wrapper may install at app construction while a plugin that predates
-    the wrapper's support still calls this itself, and a double install would buffer and replay the
-    request body twice.
+    Adds `bind_invocation_envelope` through the router's public dependency list, installs the
+    body-size cap beneath the framework, and registers the failure response shape. The dependency
+    is a path/method-aware no-op outside POST /invoke, so routes registered after this call can all
+    inherit it without private dependency-graph mutation. Calling after routes have already been
+    registered raises rather than silently leaving those routes uncovered.
+
+    Idempotent per app: a host wrapper may install at app construction while a plugin that
+    predates the wrapper's support still calls this itself, and a double install would resolve
+    settings twice per request.
     """
     if getattr(app.state, "invocation_envelope_installed", False):
         return
+    if any(
+        getattr(route, "path", None) == _INVOKE_PATH
+        and "POST" in (getattr(route, "methods", None) or set())
+        for route in app.router.routes
+    ):
+        raise RuntimeError(
+            "install_invocation_envelope must be called before the POST /invoke route is registered"
+        )
     app.state.invocation_envelope_installed = True
-    app.add_middleware(InvocationEnvelopeMiddleware)
+    app.router.dependencies.append(Depends(bind_invocation_envelope))
+    app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
+    app.add_exception_handler(UnusableInvocationEnvelope, _unusable_envelope_response)
 
 
 def settings_cache_key(invocation_settings: Mapping[str, Any]) -> str:
