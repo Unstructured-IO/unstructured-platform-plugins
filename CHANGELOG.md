@@ -28,19 +28,21 @@
   registration wins.
 * **Extraction is a route dependency.** `bind_invocation_envelope` reads the body the framework
   buffered and parsed (`request.json()` is Starlette-cached), so the `/invoke` body is held and
-  decoded exactly once per request. `install_invocation_envelope` attaches the dependency to the
-  registered POST `/invoke` route(s), registers the failure response shape, and installs
-  `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413 over the cap without
-  buffering; it must be called after the `/invoke` route is registered and raises if none exists.
-* **Sealed settings have no opt-out.** `/metadata` advertises `invocation_settings`,
-  `invocation_context` and `invoke_with_sealed_dag_node_settings` unconditionally: per-invoke
-  sealed settings are the platform's required settings path, and every plugin on this version is
-  expected to consume `current_invocation_settings()` in place of any other settings source. The
-  `invoke_with_sealed_dag_node_settings` parameter on `wrap_in_fastapi` / `generate_fast_api` and
-  the `--sealed-dag-node-settings` CLI flag are gone. A plugin that serves a custom `/metadata`
-  payload must register it via `add_metadata_route` (which replaces the wrapper's route) — a
-  plain `@app.get("/metadata")` added after construction is shadowed by the wrapper's earlier
-  registration.
+  decoded exactly once per request. `install_invocation_envelope` contributes that path-aware
+  dependency through the router's public dependency list before `/invoke` is registered; no
+  private FastAPI dependency graph is mutated. It also registers the failure response shape and
+  installs `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413 over the cap
+  without buffering. Async-generator plugins explicitly re-enter the captured request binding
+  inside response iteration, so streaming stays correct independently of FastAPI's yield-dependency
+  cleanup timing.
+* **Sealed settings consumption remains opt-in.** Pass
+  `invoke_with_sealed_dag_node_settings=True` to `wrap_in_fastapi` / `generate_fast_api` (or
+  `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
+  it advertises that the application accepts and acts on sealed `dag_node_settings`. Transport
+  support alone continues to advertise only `invocation_settings` and `invocation_context`. A
+  plugin that serves a custom `/metadata` payload must register it via `add_metadata_route` (which
+  replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction is
+  shadowed by the wrapper's earlier registration.
 * **Resolution runs off the event loop.** A cold resolve is an RSA unwrap of a couple of
   milliseconds and this dependency fronts every invoke on the pod, so it is dispatched with
   `asyncio.to_thread` rather than blocking the loop.

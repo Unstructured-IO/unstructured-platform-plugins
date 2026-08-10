@@ -37,8 +37,6 @@ from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.dependencies.utils import get_parameterless_sub_dependant
-from fastapi.routing import APIRoute
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -114,33 +112,33 @@ def invocation_envelope(
         _INVOCATION.reset(token)
 
 
-def add_metadata_route(app: FastAPI, identifier: Optional[str] = None) -> None:
+def add_metadata_route(
+    app: FastAPI,
+    identifier: Optional[str] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
+) -> None:
     """Register GET /metadata advertising the reserved /invoke fields this plugin accepts.
 
     `/metadata` is the plugin API spec's own discovery surface (`PluginMetadataOutput`): capability
     flags are strings in its `capabilities` list, which is where the controller looks before
     forwarding the reserved fields — no controller-private probe route.
 
-    All three capabilities — `invocation_settings`, `invocation_context`, and
-    `invoke_with_sealed_dag_node_settings` — are advertised unconditionally. Per-invoke sealed
-    settings are the platform's required settings path: every plugin on this package version
-    receives, resolves and binds the reserved fields, and is expected to consume
-    `current_invocation_settings()` in place of any other settings source. A plugin that ignores
-    the binding runs on stale boot-time state — the wrong-tenant hazard sealed settings exist to
-    prevent.
+    `invocation_settings` and `invocation_context` are transport capabilities: installing the
+    dependency makes the host receive, resolve, and bind those fields. The sealed-settings
+    capability is stronger: it tells the controller that the plugin handler consumes the resolved
+    `dag_node_settings` in place of boot-time state, so it remains an explicit opt-in.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
     is registered once. A host wrapper may register at app construction and a plugin can still
     re-register with its own identifier afterwards, with no route-order dependence.
     """
+    capabilities = [RESERVED_ENVELOPE_KEY, RESERVED_CONTEXT_KEY]
+    if invoke_with_sealed_dag_node_settings:
+        capabilities.append(INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY)
     app.state.plugin_metadata_payload = {
         "api_version": "3",
         "identifier": identifier,
-        "capabilities": [
-            RESERVED_ENVELOPE_KEY,
-            RESERVED_CONTEXT_KEY,
-            INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY,
-        ],
+        "capabilities": capabilities,
     }
     if getattr(app.state, "plugin_metadata_route_installed", False):
         return
@@ -189,6 +187,12 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     so absent or plaintext settings fail too — as does any /invoke whose body is not a JSON
     object, since such a body cannot carry the envelope a native pod requires.
     """
+    # ASGI `path` is mount-relative and excludes a deployment root_path; request.url.path may
+    # include that prefix and would silently skip binding behind a rooted proxy deployment.
+    if request.method != "POST" or request.scope["path"] != _INVOKE_PATH:
+        yield
+        return
+
     try:
         parsed = await request.json()
     except ValueError:
@@ -324,22 +328,14 @@ class InvokeBodyLimitMiddleware:
             await _send_json(send, 413, {"detail": "Request body too large"})
 
 
-def _invoke_routes(app: FastAPI) -> list[APIRoute]:
-    return [
-        r
-        for r in app.router.routes
-        if isinstance(r, APIRoute) and r.path == _INVOKE_PATH and "POST" in (r.methods or set())
-    ]
-
-
 def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_BODY_BYTES) -> None:
-    """Install reserved-field binding on a FastAPI app's POST /invoke route.
+    """Install reserved-field binding before registering a FastAPI app's routes.
 
-    Attaches `bind_invocation_envelope` as a dependency of every registered POST /invoke route —
-    the same insertion `include_router` performs for router-level dependencies — installs the
-    body-size cap beneath the framework, and registers the failure response shape. Must be called
-    after the /invoke route is registered; a call that finds none raises rather than leaving the
-    app silently uncovered.
+    Adds `bind_invocation_envelope` through the router's public dependency list, installs the
+    body-size cap beneath the framework, and registers the failure response shape. The dependency
+    is a path/method-aware no-op outside POST /invoke, so routes registered after this call can all
+    inherit it without private dependency-graph mutation. Calling after routes have already been
+    registered raises rather than silently leaving those routes uncovered.
 
     Idempotent per app: a host wrapper may install at app construction while a plugin that
     predates the wrapper's support still calls this itself, and a double install would resolve
@@ -347,19 +343,16 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
     """
     if getattr(app.state, "invocation_envelope_installed", False):
         return
-    routes = _invoke_routes(app)
-    if not routes:
+    if any(
+        getattr(route, "path", None) == _INVOKE_PATH
+        and "POST" in (getattr(route, "methods", None) or set())
+        for route in app.router.routes
+    ):
         raise RuntimeError(
-            "install_invocation_envelope must be called after the POST /invoke route is registered"
+            "install_invocation_envelope must be called before the POST /invoke route is registered"
         )
     app.state.invocation_envelope_installed = True
-    for route in routes:
-        route.dependant.dependencies.insert(
-            0,
-            get_parameterless_sub_dependant(
-                depends=Depends(bind_invocation_envelope), path=route.path_format
-            ),
-        )
+    app.router.dependencies.append(Depends(bind_invocation_envelope))
     app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
     app.add_exception_handler(UnusableInvocationEnvelope, _unusable_envelope_response)
 

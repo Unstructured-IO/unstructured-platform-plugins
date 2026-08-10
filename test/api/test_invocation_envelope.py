@@ -86,18 +86,18 @@ def tampered(sealed: dict) -> dict:
     return sealed
 
 
-ALL_CAPABILITIES = [
+BASE_CAPABILITIES = [
     "invocation_settings",
     "invocation_context",
+]
+ALL_CAPABILITIES = [
+    *BASE_CAPABILITIES,
     "invoke_with_sealed_dag_node_settings",
 ]
 
 
 class TestMetadataRoute:
-    def test_advertises_every_capability_unconditionally(self):
-        # Sealed per-invoke settings are the required settings path, not an opt-in: a flag whose
-        # absence quietly kept a plugin on boot-time state would be the wrong-tenant hazard the
-        # sealed path exists to prevent.
+    def test_advertises_transport_capabilities_by_default(self):
         app = FastAPI()
         add_metadata_route(app, identifier="plugin.test")
 
@@ -107,20 +107,30 @@ class TestMetadataRoute:
         assert payload == {
             "api_version": "3",
             "identifier": "plugin.test",
-            "capabilities": ALL_CAPABILITIES,
+            "capabilities": BASE_CAPABILITIES,
         }
+
+    def test_sealed_consumption_capability_is_opt_in(self):
+        app = FastAPI()
+        add_metadata_route(app, invoke_with_sealed_dag_node_settings=True)
+
+        with TestClient(app) as client:
+            payload = client.get("/metadata").json()
+
+        assert payload["capabilities"] == ALL_CAPABILITIES
 
     def test_last_call_wins(self):
         # A host wrapper registers /metadata at construction; the plugin's later call with its own
         # identifier must replace it, not be shadowed by route order.
         app = FastAPI()
         add_metadata_route(app, identifier="wrapper.default")
-        add_metadata_route(app, identifier="plugin.test")
+        add_metadata_route(app, identifier="plugin.test", invoke_with_sealed_dag_node_settings=True)
 
         with TestClient(app) as client:
             payload = client.get("/metadata").json()
 
         assert payload["identifier"] == "plugin.test"
+        assert payload["capabilities"] == ALL_CAPABILITIES
 
     def test_replaces_a_directly_registered_metadata_route(self):
         # A route the app registered itself would otherwise win by route order and pin its stale
@@ -131,7 +141,7 @@ class TestMetadataRoute:
         async def stale_metadata() -> dict:
             return {"api_version": "3", "identifier": "stale", "capabilities": []}
 
-        add_metadata_route(app, identifier="plugin.test")
+        add_metadata_route(app, identifier="plugin.test", invoke_with_sealed_dag_node_settings=True)
 
         with TestClient(app) as client:
             payload = client.get("/metadata").json()
@@ -153,6 +163,10 @@ def _envelope_app(recorder: _Recorder, max_body_bytes: Optional[int] = None) -> 
     """A hand-rolled host app: the /invoke route reads the raw request, like a plugin that owns
     its own route, so any body shape reaches the handler unless the dependency rejects it."""
     app = FastAPI()
+    if max_body_bytes is None:
+        install_invocation_envelope(app)
+    else:
+        install_invocation_envelope(app, max_body_bytes=max_body_bytes)
 
     @app.post("/invoke")
     async def invoke(request: Request) -> dict:
@@ -166,10 +180,6 @@ def _envelope_app(recorder: _Recorder, max_body_bytes: Optional[int] = None) -> 
         recorder.called = True
         return {}
 
-    if max_body_bytes is None:
-        install_invocation_envelope(app)
-    else:
-        install_invocation_envelope(app, max_body_bytes=max_body_bytes)
     return app
 
 
@@ -254,11 +264,58 @@ class TestInvocationEnvelopeBinding:
         assert recorder.seen_settings is None
         assert recorder.seen_context is None
 
-    def test_install_without_an_invoke_route_fails_loudly(self):
-        # Silently installing nothing would leave the reserved fields unbound on every request —
-        # the plugin would run on boot-time settings while advertising otherwise.
+    def test_install_after_an_invoke_route_fails_loudly(self):
+        app = FastAPI()
+
+        @app.post("/invoke")
+        async def invoke() -> dict:
+            return {}
+
         with pytest.raises(RuntimeError, match="POST /invoke"):
-            install_invocation_envelope(FastAPI())
+            install_invocation_envelope(app)
+
+    def test_install_after_metadata_but_before_invoke_is_supported(self):
+        recorder = _Recorder()
+        app = FastAPI()
+        add_metadata_route(app, invoke_with_sealed_dag_node_settings=True)
+        install_invocation_envelope(app)
+
+        @app.post("/invoke")
+        async def invoke() -> dict:
+            recorder.seen_settings = current_invocation_settings()
+            return {}
+
+        with TestClient(app) as client:
+            response = client.post("/invoke", json={"invocation_settings": {"model": "m"}})
+
+        assert response.status_code == 200
+        assert recorder.seen_settings == {"model": "m"}
+
+    def test_mixed_method_route_does_not_bind_or_parse_get(self):
+        recorder = _Recorder()
+        app = FastAPI()
+        install_invocation_envelope(app)
+
+        @app.api_route("/invoke", methods=["GET", "POST"])
+        async def invoke() -> dict:
+            recorder.seen_settings = current_invocation_settings()
+            return {}
+
+        with TestClient(app) as client:
+            response = client.get("/invoke")
+
+        assert response.status_code == 200
+        assert recorder.seen_settings is None
+
+    def test_root_path_does_not_prevent_invoke_binding(self):
+        recorder = _Recorder()
+        app = _envelope_app(recorder)
+
+        with TestClient(app, root_path="/plugins/chunker") as client:
+            response = client.post("/invoke", json={"invocation_settings": {"model": "rooted"}})
+
+        assert response.status_code == 200
+        assert recorder.seen_settings == {"model": "rooted"}
 
     def test_oversized_body_is_rejected(self):
         recorder, response = _post_invoke(
@@ -335,14 +392,14 @@ class TestEnvelopeResolution:
     """Sealed payloads through the binding dependency. The HTTP class comes from the library's
     blame taxonomy, so only a caller-fixable fault is a 422."""
 
-    def test_sealed_envelope_binds_plaintext_settings(self, key_dir, private_key):
-        settings = {"api_key": SENTINEL_SECRET, "max_characters": 700}
-        sealed = sealed_payload(private_key, settings)
+    def test_bare_sealed_envelope_is_rejected(self, key_dir, private_key):
+        sealed = sealed_payload(private_key, {"api_key": SENTINEL_SECRET})
 
         recorder, response = _post_invoke({"invocation_settings": sealed})
 
-        assert response.status_code == 200
-        assert recorder.seen_settings == settings
+        assert response.status_code == 500
+        assert "MalformedDagNodeSettingsError" in response.json()["detail"]
+        assert not recorder.called
 
     def test_composite_dag_node_settings_member_is_opened(self, key_dir, private_key):
         settings = {"api_key": SENTINEL_SECRET, "max_characters": 700}
@@ -372,8 +429,9 @@ class TestEnvelopeResolution:
         self, key_dir, private_key, caplog
     ):
         sealed = tampered(sealed_payload(private_key, {"api_key": SENTINEL_SECRET}))
+        composite = {DAG_NODE_SETTINGS_KEY: sealed}
 
-        recorder, response = _post_invoke({"invocation_settings": sealed})
+        recorder, response = _post_invoke({"invocation_settings": composite})
 
         assert response.status_code == 500
         detail = response.json()["detail"]
@@ -385,8 +443,9 @@ class TestEnvelopeResolution:
     def test_unmounted_identity_fails_as_platform_error(self, tmp_path, monkeypatch, private_key):
         monkeypatch.setenv("WORKLOAD_IDENTITY_DIR", str(tmp_path / "missing"))
         sealed = sealed_payload(private_key, {"api_key": SENTINEL_SECRET})
+        composite = {DAG_NODE_SETTINGS_KEY: sealed}
 
-        recorder, response = _post_invoke({"invocation_settings": sealed})
+        recorder, response = _post_invoke({"invocation_settings": composite})
 
         assert response.status_code == 500
         assert "IdentityNotMountedError" in response.json()["detail"]

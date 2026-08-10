@@ -29,7 +29,10 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
 )
 from unstructured_platform_plugins.invocation_settings import (
     add_metadata_route,
+    current_invocation_context,
+    current_invocation_settings,
     install_invocation_envelope,
+    invocation_envelope,
 )
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
@@ -128,12 +131,14 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     try:
         return _wrap_in_fastapi(
             func=func,
             plugin_id=plugin_id,
             precheck_func=precheck_func,
+            invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
         )
     except Exception as e:
         logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
@@ -144,6 +149,7 @@ def _wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
@@ -151,6 +157,9 @@ def _wrap_in_fastapi(
     logger.debug(f"set static id response to: {plugin_id}")
 
     fastapi_app = FastAPI()
+    # Installation contributes a public router dependency, so it must happen before /invoke is
+    # registered. The dependency itself is a no-op for every other route.
+    install_invocation_envelope(fastapi_app)
 
     response_type = get_output_sig(func)
     filedata_meta_model = update_filedata_model(response_type)
@@ -189,12 +198,33 @@ def _wrap_in_fastapi(
             request_dict["message_channels"] = message_channels
         if "filedata_meta" in inspect.signature(func).parameters:
             request_dict["filedata_meta"] = filedata_meta
+        bound_settings = current_invocation_settings()
+        bound_context = current_invocation_context()
         try:
             if inspect.isasyncgenfunction(func):
                 # Stream response if function is an async generator
                 async def _stream_response():
-                    try:
-                        async for output in func(**(request_dict or {})):
+                    # FastAPI 0.117 closes yield dependencies before iterating a
+                    # StreamingResponse. Re-enter the captured binding inside the generator so the
+                    # plugin sees the right request regardless of dependency-cleanup timing.
+                    with invocation_envelope(bound_settings, bound_context):
+                        try:
+                            async for output in func(**(request_dict or {})):
+                                yield (
+                                    InvokeResponse(
+                                        usage=usage,
+                                        message_channels=message_channels,
+                                        filedata_meta=filedata_meta_model.model_validate(
+                                            filedata_meta.model_dump()
+                                        ),
+                                        status_code=status.HTTP_200_OK,
+                                        output=output,
+                                        file_data=request_dict.get("file_data", None),
+                                    ).model_dump_json()
+                                    + "\n"
+                                )
+                        except Exception as e:
+                            logger.error(f"Failure streaming response: {e}", exc_info=True)
                             yield (
                                 InvokeResponse(
                                     usage=usage,
@@ -202,31 +232,19 @@ def _wrap_in_fastapi(
                                     filedata_meta=filedata_meta_model.model_validate(
                                         filedata_meta.model_dump()
                                     ),
-                                    status_code=status.HTTP_200_OK,
-                                    output=output,
-                                    file_data=request_dict.get("file_data", None),
+                                    status_code=getattr(e, "status_code", None)
+                                    or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                    status_code_text=f"[{e.__class__.__name__}] {e}",
                                 ).model_dump_json()
                                 + "\n"
                             )
-                    except Exception as e:
-                        logger.error(f"Failure streaming response: {e}", exc_info=True)
-                        yield (
-                            InvokeResponse(
-                                usage=usage,
-                                message_channels=message_channels,
-                                filedata_meta=filedata_meta_model.model_validate(
-                                    filedata_meta.model_dump()
-                                ),
-                                status_code=getattr(e, "status_code", None)
-                                or status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                status_code_text=f"[{e.__class__.__name__}] {e}",
-                            ).model_dump_json()
-                            + "\n"
-                        )
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                output = await invoke_func(func=func, kwargs=request_dict)
+                # Keep execution-scoped binding explicit for the same reason as the streaming
+                # branch; nested binding is harmless while the route dependency is still active.
+                with invocation_envelope(bound_settings, bound_context):
+                    output = await invoke_func(func=func, kwargs=request_dict)
                 return InvokeResponse(
                     usage=usage,
                     message_channels=message_channels,
@@ -308,9 +326,7 @@ def _wrap_in_fastapi(
 
         @fastapi_app.post("/invoke", response_model=InvokeResponse)
         async def run_job(request: Optional[input_schema_model] = None) -> ResponseType:
-            return await run_job_with_body(
-                request if request is not None else input_schema_model()
-            )
+            return await run_job_with_body(request if request is not None else input_schema_model())
 
     elif input_schema_model.model_fields:
 
@@ -371,12 +387,14 @@ def _wrap_in_fastapi(
     # The route dependency handles the reserved /invoke fields (invocation_settings and
     # invocation_context) outside the generated handler schema. It resolves sealed settings with
     # the configured private key and exposes both values through request-scoped accessors.
-    # Sealed per-invoke settings are the platform's required settings path, so the capability is
-    # advertised unconditionally: every wrapped plugin is expected to consume
-    # current_invocation_settings(). Repeated installation is safe: the dependency installs once
-    # and the last /metadata registration wins.
-    add_metadata_route(fastapi_app, identifier=plugin_id)
-    install_invocation_envelope(fastapi_app)
+    # The sealed-settings capability remains opt-in because it asserts that the wrapped function
+    # consumes current_invocation_settings(), not merely that the host can resolve it. The binding
+    # dependency was installed before route registration; the last /metadata registration wins.
+    add_metadata_route(
+        fastapi_app,
+        identifier=plugin_id,
+        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+    )
 
     FastAPIInstrumentor.instrument_app(
         fastapi_app, tracer_provider=get_trace_provider(), meter_provider=get_metric_provider()
@@ -392,6 +410,7 @@ def generate_fast_api(
     id_method: Optional[str] = None,
     precheck_str: Optional[str] = None,
     precheck_method: Optional[str] = None,
+    invoke_with_sealed_dag_node_settings: bool = False,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -414,4 +433,5 @@ def generate_fast_api(
         func=func,
         plugin_id=plugin_id,
         precheck_func=precheck_func,
+        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
     )
