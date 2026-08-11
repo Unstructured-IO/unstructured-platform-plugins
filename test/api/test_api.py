@@ -581,3 +581,41 @@ def test_no_param_plugin_still_accepts_a_bodyless_post():
 
     assert resp.status_code == 200
     assert InvokeResponse.model_validate(resp.json()).output["received"] == "ok"
+
+
+class _PrecheckFailure(Exception):
+    status_code = 403
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
+def _failing_precheck() -> None:
+    raise _PrecheckFailure("credential rejected")
+
+
+def _passing_precheck() -> None:
+    return None
+
+
+def test_precheck_reports_failure_category_from_raised_error():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_failing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    assert "credential rejected" in body["status_code_text"]
+
+
+def test_precheck_success_has_no_failure_category():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 200
+    assert body["failure_category"] is None

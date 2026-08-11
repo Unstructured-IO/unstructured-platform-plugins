@@ -146,6 +146,7 @@ def _wrap_in_fastapi(
         file_data: Optional[FileDataType] = None
         filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
+        failure_category: Optional[str] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
@@ -200,6 +201,7 @@ def _wrap_in_fastapi(
                                 status_code=getattr(e, "status_code", None)
                                 or status.HTTP_500_INTERNAL_SERVER_ERROR,
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
+                                failure_category=getattr(e, "failure_category", None),
                             ).model_dump_json()
                             + "\n"
                         )
@@ -227,6 +229,7 @@ def _wrap_in_fastapi(
                 status_code_text=json.dumps(exc.detail)
                 if isinstance(exc.detail, dict)
                 else exc.detail,
+                failure_category=getattr(exc, "failure_category", None),
                 file_data=request_dict.get("file_data", None),
             )
         except UnstructuredIngestError as exc:
@@ -240,6 +243,7 @@ def _wrap_in_fastapi(
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=exc.status_code or status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=str(exc),
+                failure_category=getattr(exc, "failure_category", None),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
@@ -251,6 +255,7 @@ def _wrap_in_fastapi(
                 status_code=getattr(invoke_error, "status_code", None)
                 or status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
+                failure_category=getattr(invoke_error, "failure_category", None),
                 file_data=request_dict.get("file_data", None),
             )
 
@@ -318,6 +323,7 @@ def _wrap_in_fastapi(
         usage: list[UsageData]
         status_code: int
         status_code_text: Optional[str] = None
+        failure_category: Optional[str] = None
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
@@ -332,6 +338,7 @@ def _wrap_in_fastapi(
             return InvokePrecheckResponse(
                 status_code=fn_response.status_code,
                 status_code_text=fn_response.status_code_text,
+                failure_category=fn_response.failure_category,
                 usage=fn_response.usage,
             )
         else:
