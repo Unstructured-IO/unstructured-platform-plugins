@@ -3,7 +3,6 @@ import hashlib
 import inspect
 import json
 import logging
-from functools import partial
 from typing import Any, Callable, Optional, Union, get_origin
 
 from fastapi import FastAPI, HTTPException, status
@@ -97,8 +96,10 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
     kwargs = kwargs or {}
     if inspect.iscoroutinefunction(func):
         return await func(**kwargs)
-    else:
-        return await asyncio.get_event_loop().run_in_executor(None, partial(func, **kwargs))
+    # to_thread copies contextvars into the worker thread, so OpenTelemetry
+    # context (and any wide-event adoption inside func) survives the hop;
+    # run_in_executor does not.
+    return await asyncio.to_thread(func, **kwargs)
 
 
 def check_precheck_func(precheck_func: Callable):
