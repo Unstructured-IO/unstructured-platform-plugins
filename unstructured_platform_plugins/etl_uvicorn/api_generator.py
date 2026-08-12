@@ -82,9 +82,13 @@ def failure_category_of(error: BaseException) -> Optional[str]:
 
 
 def status_code_of(error: BaseException) -> int:
-    """Return the error's status_code only when it is a usable integer, else 500."""
+    """Return the error's status_code only when it is an int in the HTTP range, else 500."""
     status_code = _error_attr(error, "status_code")
-    if isinstance(status_code, int) and not isinstance(status_code, bool):
+    if (
+        isinstance(status_code, int)
+        and not isinstance(status_code, bool)
+        and 100 <= status_code <= 599
+    ):
         return status_code
     return status.HTTP_500_INTERNAL_SERVER_ERROR
 
@@ -98,7 +102,11 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
 
 
 def check_precheck_func(precheck_func: Callable):
-    sig = inspect.signature(precheck_func)
+    try:
+        # eval_str resolves postponed/string annotations ('list', 'None')
+        sig = inspect.signature(precheck_func, eval_str=True)
+    except (NameError, TypeError):
+        sig = inspect.signature(precheck_func)
     inputs = list(sig.parameters.values())
     outputs = sig.return_annotation
     if len(inputs) == 1:
@@ -265,7 +273,8 @@ def _wrap_in_fastapi(
             )
         except UnstructuredIngestError as exc:
             logger.error(
-                f"UnstructuredIngestError: {str(exc)} (status_code={exc.status_code})",
+                f"UnstructuredIngestError: {exc} "
+                f"(status_code={_error_attr(exc, 'status_code')})",
                 exc_info=True,
             )
             return InvokeResponse(
@@ -322,9 +331,7 @@ def _wrap_in_fastapi(
 
         @fastapi_app.post("/invoke", response_model=InvokeResponse)
         async def run_job(request: Optional[input_schema_model] = None) -> ResponseType:
-            return await run_job_with_body(
-                request if request is not None else input_schema_model()
-            )
+            return await run_job_with_body(request if request is not None else input_schema_model())
 
     elif input_schema_model.model_fields:
 

@@ -719,3 +719,46 @@ def test_precheck_func_with_non_list_usage_parameter_is_rejected():
 
     with pytest.raises(EtlApiException):
         wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_bad_precheck)
+
+
+def test_invoke_clamps_out_of_range_status_code():
+    class _ZeroStatusError(Exception):
+        status_code = 0
+
+    def _raising_func() -> None:
+        raise _ZeroStatusError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["status_code"] == 500
+
+
+def test_invoke_survives_ingest_error_with_raising_status_code():
+    from unstructured_ingest.error import UnstructuredIngestError
+
+    class _HostileIngestError(UnstructuredIngestError):
+        @property
+        def status_code(self) -> int:
+            raise RuntimeError("status_code exploded")
+
+    def _raising_func() -> None:
+        raise _HostileIngestError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    assert resp.json()["status_code"] == 500
+
+
+def test_precheck_func_accepts_string_annotations():
+    def _string_annotated_precheck(usage: "list") -> "None":
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_string_annotated_precheck
+        )
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200
