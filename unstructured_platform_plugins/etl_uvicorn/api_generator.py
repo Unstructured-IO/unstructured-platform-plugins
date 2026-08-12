@@ -62,31 +62,28 @@ def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
         logger.log(level=logger.level, msg=msg)
 
 
-def failure_category_of(error: BaseException) -> Optional[str]:
-    """Return the error's failure_category only when it is a plain string.
+def _error_attr(error: BaseException, name: str) -> Any:
+    """Read an attribute off a raised error, treating a raising property as absent.
 
-    Runs while an exception handler is building the sanitized response, so a
-    non-string value — or an attribute access that itself raises — is treated
-    as absent rather than allowed to replace that response with a raw 500.
+    Runs while an exception handler is building the sanitized response; an
+    attribute access that itself raises must not replace that response with a
+    raw 500.
     """
     try:
-        category = getattr(error, "failure_category", None)
+        return getattr(error, name, None)
     except Exception:
         return None
+
+
+def failure_category_of(error: BaseException) -> Optional[str]:
+    """Return the error's failure_category only when it is a plain string."""
+    category = _error_attr(error, "failure_category")
     return category if isinstance(category, str) else None
 
 
 def status_code_of(error: BaseException) -> int:
-    """Return the error's status_code only when it is a usable integer.
-
-    Same contract as failure_category_of: runs inside exception handlers, so
-    anything other than a plain int falls back to 500 instead of failing
-    response-model validation.
-    """
-    try:
-        status_code = getattr(error, "status_code", None)
-    except Exception:
-        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    """Return the error's status_code only when it is a usable integer, else 500."""
+    status_code = _error_attr(error, "status_code")
     if isinstance(status_code, int) and not isinstance(status_code, bool):
         return status_code
     return status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -168,6 +165,9 @@ def _wrap_in_fastapi(
 
     logger.debug(f"set static id response to: {plugin_id}")
 
+    if "usage" not in inspect.signature(func).parameters:
+        logger.warning("usage data not an expected parameter, omitting")
+
     fastapi_app = FastAPI()
 
     response_type = get_output_sig(func)
@@ -195,13 +195,12 @@ def _wrap_in_fastapi(
         filedata_meta = FileDataMeta()
         message_channels = MessageChannels()
         request_dict = kwargs if kwargs else {}
-        if "usage" in inspect.signature(func).parameters:
+        params = inspect.signature(func).parameters
+        if "usage" in params:
             request_dict["usage"] = usage
-        else:
-            logger.warning("usage data not an expected parameter, omitting")
-        if "message_channels" in inspect.signature(func).parameters:
+        if "message_channels" in params:
             request_dict["message_channels"] = message_channels
-        if "filedata_meta" in inspect.signature(func).parameters:
+        if "filedata_meta" in params:
             request_dict["filedata_meta"] = filedata_meta
         try:
             if inspect.isasyncgenfunction(func):
@@ -273,7 +272,7 @@ def _wrap_in_fastapi(
                 usage=usage,
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
-                status_code=exc.status_code or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status_code_of(exc),
                 status_code_text=str(exc),
                 failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),

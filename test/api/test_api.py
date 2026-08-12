@@ -1,4 +1,3 @@
-import enum
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -623,12 +622,12 @@ def test_precheck_success_has_no_failure_category():
 
 
 def test_precheck_ignores_non_string_failure_category():
-    class _EnumCategoryFailure(Exception):
+    class _NonStringCategoryFailure(Exception):
         status_code = 403
-        failure_category = enum.Enum("Category", ["AUTH_PERMISSION_DENIED"]).AUTH_PERMISSION_DENIED
+        failure_category = 403
 
     def _enum_category_precheck() -> None:
-        raise _EnumCategoryFailure("credential rejected")
+        raise _NonStringCategoryFailure("credential rejected")
 
     client = TestClient(
         wrap_in_fastapi(
@@ -645,14 +644,7 @@ def test_precheck_ignores_non_string_failure_category():
 
 
 def test_invoke_reports_failure_category_from_raised_error():
-    class _CategorizedError(Exception):
-        status_code = 403
-        failure_category = "AUTH_PERMISSION_DENIED"
-
-    def _raising_func() -> None:
-        raise _CategorizedError("credential rejected")
-
-    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+    client = TestClient(wrap_in_fastapi(func=_failing_precheck, plugin_id="mock_plugin"))
 
     body = client.post("/invoke").json()
     assert body["status_code"] == 403
