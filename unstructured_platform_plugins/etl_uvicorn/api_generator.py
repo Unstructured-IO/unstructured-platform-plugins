@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, get_origin
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -65,11 +65,31 @@ def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
 def failure_category_of(error: BaseException) -> Optional[str]:
     """Return the error's failure_category only when it is a plain string.
 
-    Any other value would fail response-model validation inside an exception
-    handler, replacing the sanitized error body with a raw 500.
+    Runs while an exception handler is building the sanitized response, so a
+    non-string value — or an attribute access that itself raises — is treated
+    as absent rather than allowed to replace that response with a raw 500.
     """
-    category = getattr(error, "failure_category", None)
+    try:
+        category = getattr(error, "failure_category", None)
+    except Exception:
+        return None
     return category if isinstance(category, str) else None
+
+
+def status_code_of(error: BaseException) -> int:
+    """Return the error's status_code only when it is a usable integer.
+
+    Same contract as failure_category_of: runs inside exception handlers, so
+    anything other than a plain int falls back to 500 instead of failing
+    response-model validation.
+    """
+    try:
+        status_code = getattr(error, "status_code", None)
+    except Exception:
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    if isinstance(status_code, int) and not isinstance(status_code, bool):
+        return status_code
+    return status.HTTP_500_INTERNAL_SERVER_ERROR
 
 
 async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
@@ -82,11 +102,14 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
 
 def check_precheck_func(precheck_func: Callable):
     sig = inspect.signature(precheck_func)
-    inputs = sig.parameters.values()
+    inputs = list(sig.parameters.values())
     outputs = sig.return_annotation
     if len(inputs) == 1:
         i = inputs[0]
-        if i.name != "usage" or i.annotation is list:
+        annotation_is_list = (
+            i.annotation is sig.empty or i.annotation is list or get_origin(i.annotation) is list
+        )
+        if i.name != "usage" or not annotation_is_list:
             raise ValueError("the only input available for precheck is usage which must be a list")
     if outputs not in [None, sig.empty]:
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
@@ -208,8 +231,7 @@ def _wrap_in_fastapi(
                                 filedata_meta=filedata_meta_model.model_validate(
                                     filedata_meta.model_dump()
                                 ),
-                                status_code=getattr(e, "status_code", None)
-                                or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                status_code=status_code_of(e),
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
                                 failure_category=failure_category_of(e),
                             ).model_dump_json()
@@ -236,9 +258,9 @@ def _wrap_in_fastapi(
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=exc.status_code,
-                status_code_text=json.dumps(exc.detail)
-                if isinstance(exc.detail, dict)
-                else exc.detail,
+                status_code_text=exc.detail
+                if isinstance(exc.detail, str)
+                else json.dumps(exc.detail, default=str),
                 failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
@@ -262,8 +284,7 @@ def _wrap_in_fastapi(
                 usage=usage,
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
-                status_code=getattr(invoke_error, "status_code", None)
-                or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status_code_of(invoke_error),
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
                 failure_category=failure_category_of(invoke_error),
                 file_data=request_dict.get("file_data", None),
