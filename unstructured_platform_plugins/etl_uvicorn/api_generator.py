@@ -62,6 +62,16 @@ def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
         logger.log(level=logger.level, msg=msg)
 
 
+def failure_category_of(error: BaseException) -> Optional[str]:
+    """Return the error's failure_category only when it is a plain string.
+
+    Any other value would fail response-model validation inside an exception
+    handler, replacing the sanitized error body with a raw 500.
+    """
+    category = getattr(error, "failure_category", None)
+    return category if isinstance(category, str) else None
+
+
 async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -> Any:
     kwargs = kwargs or {}
     if inspect.iscoroutinefunction(func):
@@ -201,7 +211,7 @@ def _wrap_in_fastapi(
                                 status_code=getattr(e, "status_code", None)
                                 or status.HTTP_500_INTERNAL_SERVER_ERROR,
                                 status_code_text=f"[{e.__class__.__name__}] {e}",
-                                failure_category=getattr(e, "failure_category", None),
+                                failure_category=failure_category_of(e),
                             ).model_dump_json()
                             + "\n"
                         )
@@ -229,7 +239,7 @@ def _wrap_in_fastapi(
                 status_code_text=json.dumps(exc.detail)
                 if isinstance(exc.detail, dict)
                 else exc.detail,
-                failure_category=getattr(exc, "failure_category", None),
+                failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except UnstructuredIngestError as exc:
@@ -243,7 +253,7 @@ def _wrap_in_fastapi(
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=exc.status_code or status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=str(exc),
-                failure_category=getattr(exc, "failure_category", None),
+                failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
@@ -255,7 +265,7 @@ def _wrap_in_fastapi(
                 status_code=getattr(invoke_error, "status_code", None)
                 or status.HTTP_500_INTERNAL_SERVER_ERROR,
                 status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
-                failure_category=getattr(invoke_error, "failure_category", None),
+                failure_category=failure_category_of(invoke_error),
                 file_data=request_dict.get("file_data", None),
             )
 
