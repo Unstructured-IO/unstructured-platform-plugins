@@ -340,9 +340,17 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
 
     Idempotent per app: a host wrapper may install at app construction while a plugin that
     predates the wrapper's support still calls this itself, and a double install would resolve
-    settings twice per request.
+    settings twice per request. A repeated call asking for a different ``max_body_bytes`` raises,
+    because the cap already installed cannot be changed and silently keeping the first value would
+    misrepresent the limit actually enforced.
     """
     if getattr(app.state, "invocation_envelope_installed", False):
+        installed_max = app.state.invocation_envelope_max_body_bytes
+        if max_body_bytes != installed_max:
+            raise ValueError(
+                "install_invocation_envelope already installed with "
+                f"max_body_bytes={installed_max}; cannot reinstall with {max_body_bytes}"
+            )
         return
     if any(
         getattr(route, "path", None) == _INVOKE_PATH
@@ -353,6 +361,7 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
             "install_invocation_envelope must be called before the POST /invoke route is registered"
         )
     app.state.invocation_envelope_installed = True
+    app.state.invocation_envelope_max_body_bytes = max_body_bytes
     app.router.dependencies.append(Depends(bind_invocation_envelope))
     app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
     app.add_exception_handler(UnusableInvocationEnvelope, _unusable_envelope_response)

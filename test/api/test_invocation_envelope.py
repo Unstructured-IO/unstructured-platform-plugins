@@ -362,6 +362,24 @@ class TestInvocationEnvelopeBinding:
         assert not recorder.called
         assert response.status_code == 413
 
+    def test_repeat_install_with_the_same_cap_is_a_noop(self):
+        recorder = _Recorder()
+        app = _envelope_app(recorder, max_body_bytes=1024)
+        install_invocation_envelope(app, max_body_bytes=1024)
+
+        with TestClient(app) as client:
+            response = client.post("/invoke", json={"element_dicts": "/in.json"})
+
+        assert response.status_code == 200
+        assert recorder.called
+
+    def test_repeat_install_with_a_different_cap_fails_loudly(self):
+        app = FastAPI()
+        install_invocation_envelope(app, max_body_bytes=16)
+
+        with pytest.raises(ValueError, match="max_body_bytes"):
+            install_invocation_envelope(app, max_body_bytes=32)
+
 
 class TestInvokeBodyLimitMiddleware:
     """ASGI-level behavior of the streaming byte counter: no buffering, disconnect pass-through."""
