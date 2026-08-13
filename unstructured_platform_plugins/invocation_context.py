@@ -3,7 +3,7 @@
 Where ``invocation_settings`` carries *what* a plugin should be configured with, the context
 carries *who* the invocation is for: the identity facets a shared-tenancy pod can no longer read
 from its process environment. It travels in a second reserved, out-of-schema field of the
-``/invoke`` body, extracted by the same middleware that resolves the settings field.
+``/invoke`` body, extracted by the same route dependency that resolves the settings field.
 
 The context is `/invoke` protocol identity, not settings security: it touches no crypto and no
 secrets, and it evolves with the plugin protocol this package defines. The errors it raises come
