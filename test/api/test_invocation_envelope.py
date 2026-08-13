@@ -183,6 +183,21 @@ def _envelope_app(recorder: _Recorder, max_body_bytes: Optional[int] = None) -> 
     return app
 
 
+class _SpecCompliantRootShim:
+    """A rooted deployment as the ASGI spec describes it: ``path`` carries the mount prefix and
+    ``root_path`` names it. ``TestClient(root_path=...)`` sets only ``root_path`` without
+    prefixing ``path``, so it cannot produce this shape."""
+
+    def __init__(self, app, root: str):
+        self.app = app
+        self.root = root
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "path": self.root + scope["path"], "root_path": self.root}
+        await self.app(scope, receive, send)
+
+
 def _post_invoke(payload, recorder: Optional[_Recorder] = None, **app_kwargs):
     recorder = recorder if recorder is not None else _Recorder()
     app = _envelope_app(recorder, **app_kwargs)
@@ -317,10 +332,32 @@ class TestInvocationEnvelopeBinding:
         assert response.status_code == 200
         assert recorder.seen_settings == {"model": "rooted"}
 
+    def test_spec_compliant_root_path_scope_still_binds(self):
+        recorder = _Recorder()
+        app = _envelope_app(recorder)
+
+        with TestClient(_SpecCompliantRootShim(app, "/plugins/chunker")) as client:
+            response = client.post("/invoke", json={"invocation_settings": {"model": "rooted"}})
+
+        assert response.status_code == 200
+        assert recorder.seen_settings == {"model": "rooted"}
+
     def test_oversized_body_is_rejected(self):
         recorder, response = _post_invoke(
             {"invocation_settings": {"pad": "x" * 64}}, max_body_bytes=16
         )
+
+        assert not recorder.called
+        assert response.status_code == 413
+
+    def test_spec_compliant_root_path_scope_still_caps_body(self):
+        recorder = _Recorder()
+        app = _envelope_app(recorder, max_body_bytes=16)
+
+        with TestClient(
+            _SpecCompliantRootShim(app, "/plugins/chunker"), raise_server_exceptions=False
+        ) as client:
+            response = client.post("/invoke", json={"invocation_settings": {"pad": "x" * 64}})
 
         assert not recorder.called
         assert response.status_code == 413
@@ -361,6 +398,24 @@ class TestInvokeBodyLimitMiddleware:
         received, sent = self._run(
             lambda app: InvokeBodyLimitMiddleware(app, max_body_bytes=16),
             {"type": "http", "method": "POST", "path": "/invoke"},
+            chunks,
+        )
+
+        assert received[-1] == {"type": "http.disconnect"}
+        assert sent[0]["status"] == 413
+
+    def test_rooted_scope_over_the_cap_answers_413(self):
+        # Per the ASGI spec, `path` includes the deployment root_path; the cap must key on the
+        # mount-relative path, the same one the router matches.
+        chunks = [{"type": "http.request", "body": b"x" * 20, "more_body": False}]
+        received, sent = self._run(
+            lambda app: InvokeBodyLimitMiddleware(app, max_body_bytes=16),
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/plugins/chunker/invoke",
+                "root_path": "/plugins/chunker",
+            },
             chunks,
         )
 

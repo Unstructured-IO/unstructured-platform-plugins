@@ -39,6 +39,7 @@ from typing import Any, Optional, TypeVar
 from fastapi import Depends, FastAPI, Request
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
+from starlette.routing import get_route_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 from utic_invocation_settings import (
     INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY,
@@ -187,9 +188,9 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     so absent or plaintext settings fail too — as does any /invoke whose body is not a JSON
     object, since such a body cannot carry the envelope a native pod requires.
     """
-    # ASGI `path` is mount-relative and excludes a deployment root_path; request.url.path may
-    # include that prefix and would silently skip binding behind a rooted proxy deployment.
-    if request.method != "POST" or request.scope["path"] != _INVOKE_PATH:
+    # ASGI `path` includes any deployment root_path; get_route_path strips it, which is how the
+    # router itself matches, so binding fires exactly when the /invoke route does.
+    if request.method != "POST" or get_route_path(request.scope) != _INVOKE_PATH:
         yield
         return
 
@@ -284,7 +285,7 @@ class InvokeBodyLimitMiddleware:
         if (
             scope["type"] != "http"
             or scope.get("method") != "POST"
-            or scope.get("path") != _INVOKE_PATH
+            or get_route_path(scope) != _INVOKE_PATH
         ):
             await self.app(scope, receive, send)
             return
