@@ -1,5 +1,7 @@
+import logging
 from pathlib import Path
 from typing import Any, Optional, Union
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -708,7 +710,12 @@ def test_invoke_survives_error_with_hostile_class_access():
 
     client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
 
-    resp = client.post("/invoke")
+    # The handler logs the error with exc_info; formatting this exception's
+    # traceback outside the handler would raise, so keep the record out of
+    # the captured-log machinery.
+    with patch.object(logging.getLogger("uvicorn.error"), "error"):
+        resp = client.post("/invoke")
+
     assert resp.status_code == 200
     body = resp.json()
     assert body["status_code"] == 403
