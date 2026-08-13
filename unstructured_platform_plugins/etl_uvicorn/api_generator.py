@@ -74,6 +74,19 @@ def _error_attr(error: BaseException, name: str) -> Any:
         return None
 
 
+def _safe_str(value: object) -> str:
+    """str() on a plugin-supplied error can itself raise; never let that escape the handler.
+
+    An escape replaces the sanitized envelope with a raw HTTP 500, which the
+    controller's preflight reads as fail-open — a plugin-reported failure would
+    silently become a proceed.
+    """
+    try:
+        return str(value)
+    except Exception:
+        return "<unrenderable error>"
+
+
 def failure_category_of(error: BaseException) -> Optional[str]:
     """Return the error's failure_category only when it is a plain string."""
     category = _error_attr(error, "failure_category")
@@ -231,7 +244,7 @@ def _wrap_in_fastapi(
                                 + "\n"
                             )
                     except Exception as e:
-                        logger.error(f"Failure streaming response: {e}", exc_info=True)
+                        logger.error(f"Failure streaming response: {_safe_str(e)}", exc_info=True)
                         yield (
                             InvokeResponse(
                                 usage=usage,
@@ -240,7 +253,7 @@ def _wrap_in_fastapi(
                                     filedata_meta.model_dump()
                                 ),
                                 status_code=status_code_of(e),
-                                status_code_text=f"[{e.__class__.__name__}] {e}",
+                                status_code_text=f"[{e.__class__.__name__}] {_safe_str(e)}",
                                 failure_category=failure_category_of(e),
                             ).model_dump_json()
                             + "\n"
@@ -259,7 +272,8 @@ def _wrap_in_fastapi(
                 )
         except HTTPException as exc:
             logger.error(
-                f"HTTPException: {exc.detail} (status_code={exc.status_code})", exc_info=True
+                f"HTTPException: {_safe_str(exc.detail)} (status_code={exc.status_code})",
+                exc_info=True,
             )
             return InvokeResponse(
                 usage=usage,
@@ -268,13 +282,13 @@ def _wrap_in_fastapi(
                 status_code=exc.status_code,
                 status_code_text=exc.detail
                 if isinstance(exc.detail, str)
-                else json.dumps(exc.detail, default=str),
+                else json.dumps(exc.detail, default=_safe_str),
                 failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except UnstructuredIngestError as exc:
             logger.error(
-                f"UnstructuredIngestError: {exc} "
+                f"UnstructuredIngestError: {_safe_str(exc)} "
                 f"(status_code={_error_attr(exc, 'status_code')})",
                 exc_info=True,
             )
@@ -283,18 +297,18 @@ def _wrap_in_fastapi(
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=status_code_of(exc),
-                status_code_text=str(exc),
+                status_code_text=_safe_str(exc),
                 failure_category=failure_category_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
-            logger.error(f"failed to invoke plugin: {invoke_error}", exc_info=True)
+            logger.error(f"failed to invoke plugin: {_safe_str(invoke_error)}", exc_info=True)
             return InvokeResponse(
                 usage=usage,
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=status_code_of(invoke_error),
-                status_code_text=f"[{invoke_error.__class__.__name__}] {invoke_error}",
+                status_code_text=f"[{invoke_error.__class__.__name__}] {_safe_str(invoke_error)}",
                 failure_category=failure_category_of(invoke_error),
                 file_data=request_dict.get("file_data", None),
             )

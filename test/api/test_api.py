@@ -674,6 +674,43 @@ def test_invoke_sanitizes_raising_error_attributes():
     assert "original message" in body["status_code_text"]
 
 
+class _UnrenderableError(Exception):
+    status_code = 403
+
+    def __str__(self) -> str:
+        raise RuntimeError("__str__ exploded")
+
+
+def test_invoke_survives_error_whose_str_raises():
+    def _raising_func() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
+def test_precheck_survives_error_whose_str_raises():
+    def _unrenderable_precheck() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_unrenderable_precheck
+        )
+    )
+
+    resp = client.get("/precheck")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
 def test_invoke_ignores_non_integer_status_code():
     class _BadStatusError(Exception):
         status_code = "not-a-code"
