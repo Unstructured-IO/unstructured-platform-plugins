@@ -286,6 +286,7 @@ def _wrap_in_fastapi(
                                     status_code=status_code_of(e),
                                     status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
                                     failure_category=failure_category_of(e),
+                                    blame="user" if isinstance(e, UserError) else None,
                                 ).model_dump_json()
                                 + "\n"
                             )

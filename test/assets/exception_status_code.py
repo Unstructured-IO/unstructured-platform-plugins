@@ -1,6 +1,7 @@
 """Test assets for testing exception handling with various status_code scenarios."""
 
 from fastapi import HTTPException
+from typing_extensions import TypedDict
 from unstructured_ingest.error import UnstructuredIngestError
 
 
@@ -137,6 +138,18 @@ async def async_gen_function_raises_unstructured_ingest_error_with_none_status_c
     error = UnstructuredIngestError("Async gen test UnstructuredIngestError with None status_code")
     error.status_code = None
     raise error
+
+
+class PartialStreamResponse(TypedDict):
+    partial: str
+
+
+async def async_gen_function_raises_user_error_mid_stream() -> PartialStreamResponse:
+    """Async generator that yields once, then raises UserError."""
+    from unstructured_ingest.error import UserError
+
+    yield PartialStreamResponse(partial="output")
+    raise UserError("Customer-owned resource rejected the request")
 
 
 def function_raises_user_error() -> None:

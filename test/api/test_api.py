@@ -255,6 +255,30 @@ def test_non_user_failures_declare_no_blame(file_data):
     assert invoke_response.blame is None
 
 
+def test_streaming_user_error_declares_user_blame():
+    """The streaming error envelope carries the same blame derivation as the non-streaming path."""
+    from test.assets.exception_status_code import (
+        async_gen_function_raises_user_error_mid_stream as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": mock_file_data[0].model_dump()})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    import json
+
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 2  # One yielded item, then the error envelope
+
+    assert InvokeResponse.model_validate(json.loads(lines[0])).blame is None
+    error_response = InvokeResponse.model_validate(json.loads(lines[1]))
+    assert error_response.status_code >= 400
+    assert error_response.blame == "user"
+
+
 @pytest.mark.parametrize(
     "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
 )
