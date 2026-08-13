@@ -253,7 +253,7 @@ def _wrap_in_fastapi(
                                     filedata_meta.model_dump()
                                 ),
                                 status_code=status_code_of(e),
-                                status_code_text=f"[{e.__class__.__name__}] {_safe_str(e)}",
+                                status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
                                 failure_category=failure_category_of(e),
                             ).model_dump_json()
                             + "\n"
@@ -308,7 +308,7 @@ def _wrap_in_fastapi(
                 message_channels=message_channels,
                 filedata_meta=filedata_meta_model.model_validate(filedata_meta.model_dump()),
                 status_code=status_code_of(invoke_error),
-                status_code_text=f"[{invoke_error.__class__.__name__}] {_safe_str(invoke_error)}",
+                status_code_text=f"[{type(invoke_error).__name__}] {_safe_str(invoke_error)}",
                 failure_category=failure_category_of(invoke_error),
                 file_data=request_dict.get("file_data", None),
             )

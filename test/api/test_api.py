@@ -694,6 +694,28 @@ def test_invoke_survives_error_whose_str_raises():
     assert "<unrenderable error>" in body["status_code_text"]
 
 
+def test_invoke_survives_error_with_hostile_class_access():
+    class _HostileClassError(Exception):
+        status_code = 403
+
+        def __getattribute__(self, name: str):
+            if name == "__class__":
+                raise RuntimeError("__class__ exploded")
+            return super().__getattribute__(name)
+
+    def _raising_func() -> None:
+        raise _HostileClassError("original message")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "_HostileClassError" in body["status_code_text"]
+    assert "original message" in body["status_code_text"]
+
+
 def test_precheck_survives_error_whose_str_raises():
     def _unrenderable_precheck() -> None:
         raise _UnrenderableError()
