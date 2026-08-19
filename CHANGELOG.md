@@ -1,3 +1,11 @@
+## 0.0.46
+
+* **Carry preflight failure categories through standard `/precheck` responses.**
+  `InvokeResponse` and `InvokePrecheckResponse` now expose an optional `failure_category`
+  copied from a raised error, allowing plugins to preserve the centralized preflight
+  taxonomy through the normal `precheck_func` route wiring. Successful responses leave
+  the field unset.
+
 ## 0.0.45
 
 * **`/invoke` no longer demands a body from a plugin whose parameters are all optional.** A pydantic
