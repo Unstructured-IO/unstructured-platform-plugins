@@ -1,5 +1,7 @@
+import logging
 from pathlib import Path
 from typing import Any, Optional, Union
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -581,3 +583,248 @@ def test_no_param_plugin_still_accepts_a_bodyless_post():
 
     assert resp.status_code == 200
     assert InvokeResponse.model_validate(resp.json()).output["received"] == "ok"
+
+
+class _PrecheckFailure(Exception):
+    status_code = 403
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
+def _failing_precheck() -> None:
+    raise _PrecheckFailure("credential rejected")
+
+
+def _passing_precheck() -> None:
+    return None
+
+
+def test_precheck_reports_failure_category_from_raised_error():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_failing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    assert "credential rejected" in body["status_code_text"]
+
+
+def test_precheck_success_has_no_failure_category():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 200
+    assert body["failure_category"] is None
+
+
+def test_precheck_ignores_non_string_failure_category():
+    class _NonStringCategoryFailure(Exception):
+        status_code = 403
+        failure_category = 403
+
+    def _enum_category_precheck() -> None:
+        raise _NonStringCategoryFailure("credential rejected")
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_enum_category_precheck
+        )
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] is None
+    assert "credential rejected" in body["status_code_text"]
+
+
+def test_invoke_reports_failure_category_from_raised_error():
+    client = TestClient(wrap_in_fastapi(func=_failing_precheck, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+
+
+def test_invoke_sanitizes_raising_error_attributes():
+    class _HostileError(Exception):
+        @property
+        def status_code(self) -> int:
+            raise RuntimeError("status_code exploded")
+
+        @property
+        def failure_category(self) -> str:
+            raise RuntimeError("failure_category exploded")
+
+    def _raising_func() -> None:
+        raise _HostileError("original message")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 500
+    assert body["failure_category"] is None
+    assert "original message" in body["status_code_text"]
+
+
+class _UnrenderableError(Exception):
+    status_code = 403
+
+    def __str__(self) -> str:
+        raise RuntimeError("__str__ exploded")
+
+
+def test_invoke_survives_error_whose_str_raises():
+    def _raising_func() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
+def test_invoke_survives_error_with_hostile_class_access():
+    class _HostileClassError(Exception):
+        status_code = 403
+
+        def __getattribute__(self, name: str):
+            if name == "__class__":
+                raise RuntimeError("__class__ exploded")
+            return super().__getattribute__(name)
+
+    def _raising_func() -> None:
+        raise _HostileClassError("original message")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    # The handler logs the error with exc_info; formatting this exception's
+    # traceback outside the handler would raise, so keep the record out of
+    # the captured-log machinery.
+    with patch.object(logging.getLogger("uvicorn.error"), "error"):
+        resp = client.post("/invoke")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "_HostileClassError" in body["status_code_text"]
+    assert "original message" in body["status_code_text"]
+
+
+def test_precheck_survives_error_whose_str_raises():
+    def _unrenderable_precheck() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_unrenderable_precheck
+        )
+    )
+
+    resp = client.get("/precheck")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
+def test_invoke_ignores_non_integer_status_code():
+    class _BadStatusError(Exception):
+        status_code = "not-a-code"
+
+    def _raising_func() -> None:
+        raise _BadStatusError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 500
+
+
+def test_invoke_serializes_non_string_http_exception_detail():
+    from fastapi import HTTPException
+
+    def _raising_func() -> None:
+        raise HTTPException(status_code=422, detail=["field a", "field b"])
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 422
+    assert body["status_code_text"] == '["field a", "field b"]'
+
+
+def test_precheck_func_may_take_a_usage_list_parameter():
+    def _usage_precheck(usage: list) -> None:
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_usage_precheck)
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200
+
+
+def test_precheck_func_with_non_list_usage_parameter_is_rejected():
+    from unstructured_platform_plugins.etl_uvicorn.api_generator import EtlApiException
+
+    def _bad_precheck(usage: int) -> None:
+        return None
+
+    with pytest.raises(EtlApiException):
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_bad_precheck)
+
+
+def test_invoke_clamps_out_of_range_status_code():
+    class _ZeroStatusError(Exception):
+        status_code = 0
+
+    def _raising_func() -> None:
+        raise _ZeroStatusError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["status_code"] == 500
+
+
+def test_invoke_survives_ingest_error_with_raising_status_code():
+    from unstructured_ingest.error import UnstructuredIngestError
+
+    class _HostileIngestError(UnstructuredIngestError):
+        @property
+        def status_code(self) -> int:
+            raise RuntimeError("status_code exploded")
+
+    def _raising_func() -> None:
+        raise _HostileIngestError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    assert resp.json()["status_code"] == 500
+
+
+def test_precheck_func_accepts_string_annotations():
+    def _string_annotated_precheck(usage: "list") -> "None":
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_string_annotated_precheck
+        )
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200
