@@ -86,3 +86,7 @@ fail_under = 15
 
 [tool.hatch.build.targets.sdist]
     packages = ["/unstructured_platform_plugins"]
+
+[tool.uv.sources]
+# Temporary dev pin until utic-invocation-settings 0.4.0 is published.
+utic-invocation-settings = { git = "https://github.com/Unstructured-IO/utic-public-libs", subdirectory = "libs/utic-invocation-settings", rev = "feat/invocation-settings-asgi" }
