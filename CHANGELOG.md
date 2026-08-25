@@ -50,10 +50,6 @@
   fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
   mount are all 5xx, which keeps the controller's blame classification off the customer. Responses
   carry the error's class name and never its message, which can embed request-controlled values.
-* **Sync plugin functions now observe request-scoped context.** `invoke_func` copies the current
-  context into the executor thread; previously `run_in_executor` dropped contextvars, so a sync
-  function reading a request-scoped binding (such as `current_invocation_settings()`) would see
-  it as absent and could take an unintended fallback path.
 * **Python floor is now 3.11** (required by `utic-invocation-settings`).
 
 ## 0.0.46

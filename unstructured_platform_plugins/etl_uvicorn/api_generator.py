@@ -100,6 +100,15 @@ def failure_category_of(error: BaseException) -> Optional[str]:
     return category if isinstance(category, str) else None
 
 
+def blame_of(error: BaseException) -> Optional[str]:
+    """Return ``user`` only for failures in something the customer owns.
+
+    An absent value means not-the-customer's: orchestrators must not infer customer fault from an
+    HTTP status code, which also carries transport semantics.
+    """
+    return "user" if isinstance(error, UserError) else None
+
+
 def status_code_of(error: BaseException) -> int:
     """Return the error's status_code only when it is an int in the HTTP range, else 500."""
     status_code = _error_attr(error, "status_code")
@@ -205,8 +214,7 @@ def _wrap_in_fastapi(
         logger.warning("usage data not an expected parameter, omitting")
 
     fastapi_app = FastAPI()
-    # Installation contributes a public router dependency, so it must happen before /invoke is
-    # registered. The dependency itself is a no-op for every other route.
+    # Installation contributes a public router dependency, so it must happen before /invoke.
     install_invocation_envelope(fastapi_app)
 
     response_type = get_output_sig(func)
@@ -219,10 +227,7 @@ def _wrap_in_fastapi(
         filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
-        # Who must act on a failure: "user" only when the plugin raised the UserError family —
-        # a fault in something the customer owns (their file, their credentials, their provider).
-        # Absent means not-the-customer's: an orchestrator must never infer customer fault from
-        # the status code alone, which also carries transport semantics.
+        # Absent means not-the-customer's; see blame_of().
         blame: Optional[str] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
@@ -246,10 +251,11 @@ def _wrap_in_fastapi(
             request_dict["message_channels"] = message_channels
         if "filedata_meta" in params:
             request_dict["filedata_meta"] = filedata_meta
-        bound_settings = current_invocation_settings()
-        bound_context = current_invocation_context()
         try:
             if inspect.isasyncgenfunction(func):
+                bound_settings = current_invocation_settings()
+                bound_context = current_invocation_context()
+
                 # Stream response if function is an async generator
                 async def _stream_response():
                     # FastAPI 0.117 closes yield dependencies before iterating a
@@ -285,17 +291,14 @@ def _wrap_in_fastapi(
                                     status_code=status_code_of(e),
                                     status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
                                     failure_category=failure_category_of(e),
-                                    blame="user" if isinstance(e, UserError) else None,
+                                    blame=blame_of(e),
                                 ).model_dump_json()
                                 + "\n"
                             )
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
-                # Keep execution-scoped binding explicit for the same reason as the streaming
-                # branch; nested binding is harmless while the route dependency is still active.
-                with invocation_envelope(bound_settings, bound_context):
-                    output = await invoke_func(func=func, kwargs=request_dict)
+                output = await invoke_func(func=func, kwargs=request_dict)
                 return InvokeResponse(
                     usage=usage,
                     message_channels=message_channels,
@@ -333,7 +336,7 @@ def _wrap_in_fastapi(
                 status_code=status_code_of(exc),
                 status_code_text=_safe_str(exc),
                 failure_category=failure_category_of(exc),
-                blame="user" if isinstance(exc, UserError) else None,
+                blame=blame_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
@@ -441,12 +444,7 @@ def _wrap_in_fastapi(
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
 
-    # The route dependency handles the reserved /invoke fields (invocation_settings and
-    # invocation_context) outside the generated handler schema. It resolves sealed settings with
-    # the configured private key and exposes both values through request-scoped accessors.
-    # The sealed-settings capability remains opt-in because it asserts that the wrapped function
-    # consumes current_invocation_settings(), not merely that the host can resolve it. The binding
-    # dependency was installed before route registration; the last /metadata registration wins.
+    # Registered last so add_metadata_route replaces any /metadata the plugin registered itself.
     add_metadata_route(
         fastapi_app,
         identifier=plugin_id,
