@@ -4,7 +4,7 @@
   `unstructured_platform_plugins.invocation_settings` holds the `/invoke` binding dependency and
   body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
   — the HTTP spelling of the
-  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.5.0`, which
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`, which
   owns the *settings contract* — including the field-atomic wire shape, independent sealed-field
   resolution, and what an absent field is allowed to mean. That split is deliberate: the
   absence rule is a security decision and belongs next to the crypto it governs, while request
