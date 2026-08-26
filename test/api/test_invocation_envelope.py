@@ -424,9 +424,7 @@ class TestSettingsResolutionBoundary:
             return resolved
 
         monkeypatch.setattr(
-            invocation_settings_transport._invocation_settings_contract,
-            "resolve_invocation_settings",
-            resolve,
+            invocation_settings_transport, "resolve_invocation_settings", resolve
         )
 
         recorder, response = _post_invoke({"invocation_settings": opaque_payload})
@@ -442,7 +440,7 @@ class TestSettingsResolutionBoundary:
             resolver_threads.append(get_ident())
             return {"model": "m"}
 
-        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", resolve)
+        monkeypatch.setattr(invocation_settings_transport, "resolve_invocation_settings", resolve)
 
         recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
 
@@ -461,7 +459,7 @@ class TestSettingsResolutionBoundary:
         def fail(_payload):
             raise _ResolutionFailure(blame)
 
-        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", fail)
+        monkeypatch.setattr(invocation_settings_transport, "resolve_invocation_settings", fail)
 
         recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
 
@@ -475,7 +473,7 @@ class TestSettingsResolutionBoundary:
         def fail(_payload):
             raise _ResolutionFailure(Blame.RECIPIENT, secret)
 
-        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", fail)
+        monkeypatch.setattr(invocation_settings_transport, "resolve_invocation_settings", fail)
 
         recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
 

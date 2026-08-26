@@ -36,7 +36,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
 
-import utic_invocation_settings as _invocation_settings_contract
 from fastapi import Depends, FastAPI, Request
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
@@ -48,6 +47,7 @@ from utic_invocation_settings import (
     Blame,
     InvocationSettingsError,
     MalformedEnvelopeError,
+    resolve_invocation_settings,
 )
 
 from unstructured_platform_plugins.invocation_context import (
@@ -99,15 +99,6 @@ def current_invocation_settings() -> Optional[dict]:
 def current_invocation_context() -> Optional[InvocationContext]:
     """Reserved `invocation_context` field bound for the current request, if any."""
     return _INVOCATION.get()[1]
-
-
-def _resolve_invocation_settings(payload: Any) -> Optional[dict[str, Any]]:
-    """Resolve a contract-owned payload to the ordinary mapping bound to a plugin.
-
-    This deliberately thin call is the only integration point with the settings wire contract.
-    The transport does not inspect ``dag_node_settings`` or any field envelope within it.
-    """
-    return _invocation_settings_contract.resolve_invocation_settings(payload)
 
 
 @contextmanager
@@ -225,7 +216,7 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     try:
         # Off the event loop: resolution may perform blocking cryptography for independently
         # sealed fields, and this dependency fronts every invoke on the pod.
-        invocation_settings = await asyncio.to_thread(_resolve_invocation_settings, raw_settings)
+        invocation_settings = await asyncio.to_thread(resolve_invocation_settings, raw_settings)
     except Exception as exc:
         # Class name only — never envelope contents, and never the exception's own message,
         # which can embed request-controlled values.
