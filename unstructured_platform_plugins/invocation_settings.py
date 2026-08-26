@@ -1,9 +1,9 @@
 """Transport for the reserved `/invoke` fields: request dependency, `/metadata`, body cap.
 
-The *settings contract* — which key carries settings, how a sealed envelope is told from
-plaintext, and what an absent field is allowed to mean — lives in
-`utic_invocation_settings.invoke`, next to the crypto it governs; every decision about a settings
-payload is delegated there. The *identity contract* — the `invocation_context` model — is
+The *settings contract* — including the field-atomic wire shape, sealed-field resolution, and what
+an absent field is allowed to mean — lives in `utic_invocation_settings`, next to the crypto it
+governs; every decision about a settings payload is delegated there. The *identity contract* —
+the `invocation_context` model — is
 `/invoke` protocol rather than settings security and lives in this package's
 `invocation_context` module. This module is the delivery mechanism for both: getting the payloads
 off the wire and the results to the handler, and spelling the shared `blame` taxonomy as HTTP
@@ -36,6 +36,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
 
+import utic_invocation_settings as _invocation_settings_contract
 from fastapi import Depends, FastAPI, Request
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
@@ -47,7 +48,6 @@ from utic_invocation_settings import (
     Blame,
     InvocationSettingsError,
     MalformedEnvelopeError,
-    resolve_invocation_settings,
 )
 
 from unstructured_platform_plugins.invocation_context import (
@@ -101,6 +101,15 @@ def current_invocation_context() -> Optional[InvocationContext]:
     return _INVOCATION.get()[1]
 
 
+def _resolve_invocation_settings(payload: Any) -> Optional[dict[str, Any]]:
+    """Resolve a contract-owned payload to the ordinary mapping bound to a plugin.
+
+    This deliberately thin call is the only integration point with the settings wire contract.
+    The transport does not inspect ``dag_node_settings`` or any field envelope within it.
+    """
+    return _invocation_settings_contract.resolve_invocation_settings(payload)
+
+
 @contextmanager
 def invocation_envelope(
     invocation_settings: Optional[dict], invocation_context: Optional[InvocationContext]
@@ -127,7 +136,7 @@ def add_metadata_route(
     `invocation_settings` and `invocation_context` are transport capabilities: installing the
     dependency makes the host receive, resolve, and bind those fields. The sealed-settings
     capability is stronger: it tells the controller that the plugin handler consumes the resolved
-    `dag_node_settings` in place of boot-time state, so it remains an explicit opt-in.
+    field-atomic settings in place of boot-time state, so it remains an explicit opt-in.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
     is registered once. A host wrapper may register at app construction and a plugin can still
@@ -214,9 +223,9 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
                 },
             )
     try:
-        # Off the event loop: a cold resolve is an RSA unwrap of a couple of milliseconds, and
-        # this dependency fronts every invoke on the pod.
-        invocation_settings = await asyncio.to_thread(resolve_invocation_settings, raw_settings)
+        # Off the event loop: resolution may perform blocking cryptography for independently
+        # sealed fields, and this dependency fronts every invoke on the pod.
+        invocation_settings = await asyncio.to_thread(_resolve_invocation_settings, raw_settings)
     except Exception as exc:
         # Class name only — never envelope contents, and never the exception's own message,
         # which can embed request-controlled values.
@@ -368,19 +377,21 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
 
 
 def settings_cache_key(invocation_settings: Mapping[str, Any]) -> str:
-    """Digest of the canonical settings JSON, safe as a cache key for secret-bearing payloads."""
+    """Digest of an ordinary resolved settings mapping, safe for secret-bearing values."""
     return hashlib.sha256(json.dumps(invocation_settings, sort_keys=True).encode()).hexdigest()
 
 
 class SettingsScopedCache:
     """Bind expensive derived state (clients, models, handlers) to the settings that built it.
 
-    A plugin consuming ``current_invocation_settings()`` builds its handler per distinct settings
-    payload instead of once at boot, and construction typically does network work (model
-    resolution, prechecks), so results are memoized keyed by ``settings_cache_key``. Both bounds
-    matter under shared tenancy: size caps how many distinct payloads stay live, and age evicts
-    state built from credentials that may since have been rotated — eviction driven only by the
-    count of distinct payloads can take arbitrarily long on a quiet pod.
+    A plugin consuming ``current_invocation_settings()`` builds its handler per distinct resolved
+    mapping instead of once at boot, and construction typically does network work (model
+    resolution, prechecks), so results are memoized keyed by ``settings_cache_key``. Raw field
+    envelopes never reach this cache: the public settings library resolves and caches them at the
+    field boundary before this transport binds the result. Both bounds matter under shared
+    tenancy: size caps how many distinct mappings stay live, and age evicts state built from
+    credentials that may since have been rotated — eviction driven only by the count of distinct
+    mappings can take arbitrarily long on a quiet pod.
 
     Thread-safe for lookups and inserts. Concurrent misses for the same settings may build twice;
     the extra build is wasted work, never wrong state.

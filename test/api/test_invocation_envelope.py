@@ -9,23 +9,15 @@ request instead of reaching a handler as absence.
 from __future__ import annotations
 
 import asyncio
-import json
-from base64 import b64decode, b64encode
+from threading import get_ident
 from typing import Optional
 
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from utic_invocation_settings import (
-    DAG_NODE_SETTINGS_KEY,
-    REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_ENV_VAR,
-    default_resolver,
-    reset_workload_identity_cache,
-)
-from utic_invocation_settings.crypto import seal_settings
+from utic_invocation_settings import Blame
 
+import unstructured_platform_plugins.invocation_settings as invocation_settings_transport
 from unstructured_platform_plugins.invocation_settings import (
     InvokeBodyLimitMiddleware,
     add_metadata_route,
@@ -33,58 +25,6 @@ from unstructured_platform_plugins.invocation_settings import (
     current_invocation_settings,
     install_invocation_envelope,
 )
-
-SENTINEL_SECRET = "sealed-settings-sentinel-secret"
-
-
-@pytest.fixture(scope="session")
-def private_key() -> rsa.RSAPrivateKey:
-    return rsa.generate_private_key(public_exponent=65537, key_size=3072)
-
-
-@pytest.fixture(autouse=True)
-def isolated_identity(monkeypatch):
-    """The identity memo and the resolver caches both outlive a test; an inherited env var or a
-    stale entry would make these order-dependent."""
-    for var in (
-        "WORKLOAD_IDENTITY_DIR",
-        "INVOCATION_SETTINGS_KEY_DIR",
-        REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_ENV_VAR,
-    ):
-        monkeypatch.delenv(var, raising=False)
-    reset_workload_identity_cache()
-    default_resolver().clear_caches()
-    yield
-    reset_workload_identity_cache()
-    default_resolver().clear_caches()
-
-
-@pytest.fixture
-def key_dir(tmp_path, private_key, monkeypatch, isolated_identity):
-    (tmp_path / "tls.key").write_bytes(
-        private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    monkeypatch.setenv("WORKLOAD_IDENTITY_DIR", str(tmp_path))
-    reset_workload_identity_cache()
-    return tmp_path
-
-
-def sealed_payload(private_key: rsa.RSAPrivateKey, settings: dict) -> dict:
-    return seal_settings(settings, private_key.public_key()).model_dump(
-        mode="json", exclude_none=True
-    )
-
-
-def tampered(sealed: dict) -> dict:
-    ciphertext = bytearray(b64decode(sealed["content_encryption"]["ciphertext"]))
-    ciphertext[0] ^= 0x01
-    sealed["content_encryption"]["ciphertext"] = b64encode(bytes(ciphertext)).decode()
-    return sealed
-
 
 BASE_CAPABILITIES = [
     "invocation_settings",
@@ -155,6 +95,7 @@ class _Recorder:
 
     def __init__(self):
         self.called = False
+        self.handler_thread = None
         self.seen_settings = "unset"
         self.seen_context = "unset"
 
@@ -171,6 +112,7 @@ def _envelope_app(recorder: _Recorder, max_body_bytes: Optional[int] = None) -> 
     @app.post("/invoke")
     async def invoke(request: Request) -> dict:
         recorder.called = True
+        recorder.handler_thread = get_ident()
         recorder.seen_settings = current_invocation_settings()
         recorder.seen_context = current_invocation_context()
         return {}
@@ -461,113 +403,85 @@ class TestInvokeBodyLimitMiddleware:
         assert sent[0]["status"] == 200
 
 
-class TestEnvelopeResolution:
-    """Sealed payloads through the binding dependency. The HTTP class comes from the library's
-    blame taxonomy, so only a caller-fixable fault is a 422."""
+class _ResolutionFailure(Exception):
+    reason = "test_resolution_failure"
 
-    def test_bare_sealed_envelope_is_rejected(self, key_dir, private_key):
-        sealed = sealed_payload(private_key, {"api_key": SENTINEL_SECRET})
+    def __init__(self, blame: Blame, secret: str = ""):
+        super().__init__(secret)
+        self.blame = blame
 
-        recorder, response = _post_invoke({"invocation_settings": sealed})
 
-        assert response.status_code == 500
-        assert "MalformedDagNodeSettingsError" in response.json()["detail"]
-        assert not recorder.called
+class TestSettingsResolutionBoundary:
+    """The library owns settings shape and crypto; this package owns delivery and HTTP mapping."""
 
-    def test_composite_dag_node_settings_member_is_opened(self, key_dir, private_key):
-        settings = {"api_key": SENTINEL_SECRET, "max_characters": 700}
-        composite = {DAG_NODE_SETTINGS_KEY: sealed_payload(private_key, settings)}
+    def test_opaque_payload_is_delegated_and_final_mapping_is_bound(self, monkeypatch):
+        opaque_payload = {"contract-owned": {"content": "opaque-to-transport"}}
+        resolved = {"api_key": "resolved-secret", "max_characters": 700}
+        seen = []
 
-        recorder, response = _post_invoke({"invocation_settings": composite})
+        def resolve(payload):
+            seen.append(payload)
+            return resolved
+
+        monkeypatch.setattr(
+            invocation_settings_transport._invocation_settings_contract,
+            "resolve_invocation_settings",
+            resolve,
+        )
+
+        recorder, response = _post_invoke({"invocation_settings": opaque_payload})
 
         assert response.status_code == 200
-        assert recorder.seen_settings == settings
+        assert seen == [opaque_payload]
+        assert recorder.seen_settings == resolved
 
-    def test_plain_dict_settings_pass_through(self):
-        recorder, response = _post_invoke({"invocation_settings": {"model": "m"}})
+    def test_resolution_runs_off_the_event_loop(self, monkeypatch):
+        resolver_threads = []
+
+        def resolve(_payload):
+            resolver_threads.append(get_ident())
+            return {"model": "m"}
+
+        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", resolve)
+
+        recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
 
         assert response.status_code == 200
-        assert recorder.seen_settings == {"model": "m"}
+        assert recorder.called
+        assert len(resolver_threads) == 1
+        assert resolver_threads[0] != recorder.handler_thread
 
-    def test_non_envelope_member_fails_as_platform_error(self, key_dir):
-        composite = {DAG_NODE_SETTINGS_KEY: {"model": "m"}}
-
-        recorder, response = _post_invoke({"invocation_settings": composite})
-
-        assert response.status_code == 500
-        assert "MalformedDagNodeSettingsError" in response.json()["detail"]
-        assert not recorder.called
-
-    def test_undecryptable_envelope_fails_without_leaking_the_secret(
-        self, key_dir, private_key, caplog
+    @pytest.mark.parametrize(
+        ("blame", "expected_status"),
+        [(Blame.CALLER, 422), (Blame.RECIPIENT, 500)],
+    )
+    def test_resolution_failure_uses_blame_for_http_status(
+        self, monkeypatch, blame, expected_status
     ):
-        sealed = tampered(sealed_payload(private_key, {"api_key": SENTINEL_SECRET}))
-        composite = {DAG_NODE_SETTINGS_KEY: sealed}
+        def fail(_payload):
+            raise _ResolutionFailure(blame)
 
-        recorder, response = _post_invoke({"invocation_settings": composite})
+        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", fail)
 
-        assert response.status_code == 500
-        detail = response.json()["detail"]
-        assert "DecryptionError" in detail
-        assert SENTINEL_SECRET not in caplog.text
-        assert SENTINEL_SECRET not in detail
+        recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
+
+        assert response.status_code == expected_status
+        assert response.json()["reason"] == _ResolutionFailure.reason
         assert not recorder.called
 
-    def test_unmounted_identity_fails_as_platform_error(self, tmp_path, monkeypatch, private_key):
-        monkeypatch.setenv("WORKLOAD_IDENTITY_DIR", str(tmp_path / "missing"))
-        sealed = sealed_payload(private_key, {"api_key": SENTINEL_SECRET})
-        composite = {DAG_NODE_SETTINGS_KEY: sealed}
+    def test_resolution_failure_never_exposes_exception_message(self, monkeypatch, caplog):
+        secret = "sealed-settings-sentinel-secret"
 
-        recorder, response = _post_invoke({"invocation_settings": composite})
+        def fail(_payload):
+            raise _ResolutionFailure(Blame.RECIPIENT, secret)
 
-        assert response.status_code == 500
-        assert "IdentityNotMountedError" in response.json()["detail"]
-        assert not recorder.called
+        monkeypatch.setattr(invocation_settings_transport, "_resolve_invocation_settings", fail)
 
-
-class TestRequireSealedDagNodeSettings:
-    """A native pod's operator sets FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS in the same
-    decision that drops the init-secrets sidecar: without it, an invoke that arrived with no
-    envelope would fall back to a settings file that was never written."""
-
-    @pytest.fixture(autouse=True)
-    def _require_sealed(self, monkeypatch):
-        monkeypatch.setenv(REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_ENV_VAR, "true")
-
-    def test_missing_settings_fail_as_platform_error(self):
-        recorder, response = _post_invoke({"element_dicts": "/tmp/x.json"})
+        recorder, response = _post_invoke({"invocation_settings": {"opaque": "payload"}})
 
         assert response.status_code == 500
-        assert "SealedDagNodeSettingsRequiredError" in response.json()["detail"]
-        assert not recorder.called
-
-    def test_plaintext_settings_fail_as_platform_error(self):
-        recorder, response = _post_invoke({"invocation_settings": {"model": "m"}})
-
-        assert response.status_code == 500
-        assert not recorder.called
-
-    def test_sealed_settings_still_bind(self, key_dir, private_key):
-        settings = {"api_key": SENTINEL_SECRET}
-        composite = {DAG_NODE_SETTINGS_KEY: sealed_payload(private_key, settings)}
-
-        recorder, response = _post_invoke({"invocation_settings": composite})
-
-        assert response.status_code == 200
-        assert recorder.seen_settings == settings
-
-    def test_bodyless_invoke_fails_as_platform_error(self):
-        # A bodyless invoke cannot carry the envelope; on a pod with no boot settings file it must
-        # not dispatch a handler with no settings source at all.
-        recorder, response = _post_invoke(b"")
-
-        assert response.status_code == 500
-        assert not recorder.called
-
-    def test_non_object_json_body_fails_as_platform_error(self):
-        recorder, response = _post_invoke(json.dumps([{"element": 1}]).encode())
-
-        assert response.status_code == 500
+        assert secret not in caplog.text
+        assert secret not in response.json()["detail"]
         assert not recorder.called
 
 

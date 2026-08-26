@@ -32,7 +32,7 @@ class TestSettingsScopedCache:
         assert first == second == "handler"
         build.assert_called_once()
 
-    def test_distinct_settings_build_distinct_values(self):
+    def test_change_in_resolved_field_builds_a_distinct_value(self):
         cache = SettingsScopedCache()
 
         first = cache.get_or_build({"model": "a"}, lambda: object())
