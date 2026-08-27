@@ -425,6 +425,28 @@ class SettingsScopedCache:
                 self._entries.popitem(last=False)
         return value
 
+    def handler_for(
+        self,
+        resolved_settings: Optional[Mapping[str, Any]],
+        *,
+        boot: Callable[[], Optional[T]],
+        build: Callable[[], T],
+    ) -> T:
+        """The handler for a request: cached per distinct resolved mapping, or the boot fallback.
+
+        Absent settings select the single handler configured by the boot-time settings file.
+        ``boot`` returning ``None`` means the pod has no boot configuration and sealed per-invoke
+        settings are required, so the request fails rather than running an unconfigured handler.
+        """
+        if resolved_settings is None:
+            handler = boot()
+            if handler is None:
+                raise ValueError(
+                    "no boot-time handler on this pod: sealed per-invoke settings are required"
+                )
+            return handler
+        return self.get_or_build(resolved_settings, build)
+
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()

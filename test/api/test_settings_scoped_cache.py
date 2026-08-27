@@ -92,3 +92,32 @@ class TestSettingsScopedCache:
     def test_degenerate_bounds_are_rejected(self, kwargs):
         with pytest.raises(ValueError):
             SettingsScopedCache(**kwargs)
+
+
+class TestHandlerFor:
+    def test_absent_settings_return_the_boot_handler(self):
+        cache = SettingsScopedCache()
+        build = MagicMock()
+
+        handler = cache.handler_for(None, boot=lambda: "boot-handler", build=build)
+
+        assert handler == "boot-handler"
+        build.assert_not_called()
+
+    def test_absent_settings_without_a_boot_handler_fail(self):
+        cache = SettingsScopedCache()
+
+        with pytest.raises(ValueError):
+            cache.handler_for(None, boot=lambda: None, build=MagicMock())
+
+    def test_resolved_settings_build_and_cache_per_distinct_mapping(self):
+        cache = SettingsScopedCache()
+        boot = MagicMock()
+        build = MagicMock(return_value="handler")
+
+        first = cache.handler_for({"model": "a"}, boot=boot, build=build)
+        second = cache.handler_for({"model": "a"}, boot=boot, build=build)
+
+        assert first == second == "handler"
+        build.assert_called_once()
+        boot.assert_not_called()
