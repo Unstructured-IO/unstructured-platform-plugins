@@ -11,11 +11,11 @@ from the shared ``InvocationSettingsError`` taxonomy so hosts classify context f
 same ``reason``/``blame`` machinery as settings failures.
 
 The model below is the **consumer** view of that contract, deliberately lenient: unknown keys are
-preserved so a newer producer does not break an older plugin, and every identity field is optional
-so a partially-populated context degrades to "less telemetry" rather than a failed invoke. The one
-thing it is strict about is ``schema_version`` — that field exists to make an incompatible producer
-detectable, which it can only do if somebody actually reads it. The payload is what carries the
-version, not the route, so evolving the contract does not mean adding endpoints.
+preserved for additive forward compatibility, and every identity field is optional so a
+partially-populated context degrades to "less telemetry" rather than a failed invoke. The one thing
+it is strict about is ``schema_version`` — that field makes incompatible producer and consumer
+contracts detectable. The payload carries the version, so evolving the contract does not require
+adding endpoints.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from utic_invocation_settings import Blame, InvocationSettingsError, MalformedEn
 # Reserved key carrying the invocation context in the invoke request body.
 RESERVED_CONTEXT_KEY = "invocation_context"
 
-# Context payload versions this package understands. Additive keys do not bump this; a change that
-# would make an old consumer misread an existing key does.
+# Context payload versions this package understands. Additive keys do not bump this; changing an
+# existing key's meaning incompatibly does.
 SUPPORTED_CONTEXT_VERSIONS = frozenset({"1"})
 
 # The identity facets that become telemetry dimensions. Shared rather than per-service policy:
@@ -57,11 +57,11 @@ _ABSENT = object()
 class UnsupportedContextVersionError(InvocationSettingsError):
     """The ``invocation_context`` declares a ``schema_version`` this package does not understand.
 
-    A producer upgrade this consumer cannot follow — deployment skew between platform components,
-    not a fault in the request. ``CONTENT`` (a 5xx) rather than ``CALLER``: contexts are produced
-    by the platform's own claim pipeline, and a 422 would make an upstream blame classifier pin a
-    version-skew failure on the customer. Loud at the first request rather than silently absent
-    telemetry dimensions later.
+    This indicates deployment skew between platform components, not a fault in the request.
+    ``CONTENT`` (a 5xx) rather than ``CALLER``: contexts are produced by the platform's own claim
+    pipeline, and a 422 would make an upstream blame classifier pin a version-skew failure on the
+    customer. Failing the request prevents an unreadable context from silently removing telemetry
+    dimensions.
     """
 
     reason = "unsupported_context_version"
@@ -71,8 +71,8 @@ class UnsupportedContextVersionError(InvocationSettingsError):
 class InvocationContext(pydantic.BaseModel):
     """Request-scoped identity delivered alongside one claimed unit of work.
 
-    ``extra="allow"`` keeps forward compatibility: fields added by a newer producer survive round
-    trips and stay reachable via ``model_extra`` instead of being silently dropped.
+    ``extra="allow"`` keeps additive fields available through ``model_extra`` instead of silently
+    dropping them.
     """
 
     model_config = pydantic.ConfigDict(extra="allow")
@@ -113,14 +113,13 @@ class InvocationContext(pydantic.BaseModel):
 def extract_context(payload: Mapping[str, Any]) -> InvocationContext | None:
     """Return the :class:`InvocationContext` from ``payload[RESERVED_CONTEXT_KEY]``.
 
-    Returns ``None`` only when the reserved key is **absent** — the transitional signal that the
-    caller is an older controller. A present-but-invalid value fails closed rather than degrading
-    to "no context", because a context that silently vanishes takes a pod's tenant attribution with
-    it.
+    Returns ``None`` only when the producer omitted the reserved key. A present-but-invalid value
+    fails closed rather than degrading to "no context", because a context that silently vanishes
+    takes a pod's tenant attribution with it.
 
     A recognizable context carrying an unknown ``schema_version`` raises
-    :class:`UnsupportedContextVersionError` so a producer upgrade is loud at the first request
-    instead of showing up later as absent telemetry dimensions.
+    :class:`UnsupportedContextVersionError` so an incompatible contract cannot be mistaken for
+    absent context.
     """
     raw = payload.get(RESERVED_CONTEXT_KEY, _ABSENT)
     if raw is _ABSENT:

@@ -182,9 +182,9 @@ class TestInvocationEnvelopeBinding:
         assert body["reason"] == "malformed_envelope"
 
     def test_context_with_an_unreadable_schema_version_fails_as_platform_error(self):
-        # Absence means "older caller, use the boot settings"; a context this plugin cannot read
-        # must not be downgraded to that. And it is deployment skew, not a caller fault — a 422
-        # would let an upstream blame classifier pin version skew on the customer.
+        # An absent context permits boot-state behavior; an unreadable context must not be
+        # downgraded to absence. It is deployment skew, not a caller fault — a 422 would let an
+        # upstream blame classifier pin version skew on the customer.
         recorder, response = _post_invoke({"invocation_context": {"schema_version": "99"}})
 
         assert not recorder.called

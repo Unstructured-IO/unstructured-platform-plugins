@@ -338,11 +338,10 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
     inherit it without private dependency-graph mutation. Calling after routes have already been
     registered raises rather than silently leaving those routes uncovered.
 
-    Idempotent per app: a host wrapper may install at app construction while a plugin that
-    predates the wrapper's support still calls this itself, and a double install would resolve
-    settings twice per request. A repeated call asking for a different ``max_body_bytes`` raises,
-    because the cap already installed cannot be changed and silently keeping the first value would
-    misrepresent the limit actually enforced.
+    Idempotent per app because both host-wrapper and plugin setup may call this function, while a
+    double installation would resolve settings twice per request. A repeated call asking for a
+    different ``max_body_bytes`` raises because the installed cap cannot be changed and silently
+    keeping the first value would misrepresent the limit actually enforced.
     """
     if getattr(app.state, "invocation_envelope_installed", False):
         installed_max = app.state.invocation_envelope_max_body_bytes
@@ -375,14 +374,13 @@ def settings_cache_key(invocation_settings: Mapping[str, Any]) -> str:
 class SettingsScopedCache:
     """Bind expensive derived state (clients, models, handlers) to the settings that built it.
 
-    A plugin consuming ``current_invocation_settings()`` builds its handler per distinct resolved
-    mapping instead of once at boot, and construction typically does network work (model
-    resolution, prechecks), so results are memoized keyed by ``settings_cache_key``. Raw field
-    envelopes never reach this cache: the public settings library resolves and caches them at the
-    field boundary before this transport binds the result. Both bounds matter under shared
-    tenancy: size caps how many distinct mappings stay live, and age evicts state built from
-    credentials that may since have been rotated — eviction driven only by the count of distinct
-    mappings can take arbitrarily long on a quiet pod.
+    A plugin consuming ``current_invocation_settings()`` derives a handler from each distinct
+    resolved mapping. Construction typically performs network work (model resolution, prechecks),
+    so results are memoized by ``settings_cache_key``. Raw field envelopes never reach this cache:
+    the public settings library resolves and caches them at the field boundary before this
+    transport binds the result. Both bounds matter under shared tenancy: size caps how many
+    distinct mappings stay live, and age evicts state after credential rotation. Eviction driven
+    only by the count of distinct mappings can take arbitrarily long on a quiet pod.
 
     Thread-safe for lookups and inserts. Concurrent misses for the same settings may build twice;
     the extra build is wasted work, never wrong state.
