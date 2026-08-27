@@ -665,7 +665,24 @@ def test_precheck_reports_failure_category_from_raised_error():
     body = resp.json()
     assert body["status_code"] == 403
     assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    # A plain exception is not the customer's to fix.
+    assert body["blame"] is None
     assert "credential rejected" in body["status_code_text"]
+
+
+def test_precheck_declares_user_blame_like_invoke_does():
+    from unstructured_ingest.error import UserError
+
+    def user_fault_precheck() -> None:
+        raise UserError("bad credentials")
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=user_fault_precheck)
+    )
+
+    body = client.get("/precheck").json()
+
+    assert body["blame"] == "user"
 
 
 def test_precheck_success_has_no_failure_category():

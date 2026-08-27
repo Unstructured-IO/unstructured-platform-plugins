@@ -419,6 +419,12 @@ class SettingsScopedCache:
                 del self._entries[key]
         value = build()
         with self._lock:
+            # Every insert also sweeps entries whose TTL has lapsed, so a tenant that stops
+            # sending requests does not keep its credential-bearing handler live while the pod
+            # stays busy for others; per-key expiry alone only fires on that tenant's next hit.
+            for stale_key, (expires_at, _) in list(self._entries.items()):
+                if now >= expires_at:
+                    del self._entries[stale_key]
             self._entries[key] = (now + self._ttl_seconds, value)
             self._entries.move_to_end(key)
             while len(self._entries) > self._maxsize:

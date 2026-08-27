@@ -65,6 +65,29 @@ def test_unknown_schema_version_is_rejected_by_its_own_error():
     assert "'2'" in str(exc.value)
 
 
+@pytest.mark.parametrize("version", [None, 2, ["1"]])
+def test_a_mistyped_schema_version_is_malformed_not_version_skew(version):
+    # Only a well-typed version string this consumer does not know reads as deployment skew;
+    # a wrong-typed field is the caller's malformed context like any other field.
+    with pytest.raises(MalformedEnvelopeError):
+        extract_context({RESERVED_CONTEXT_KEY: {**VALID, "schema_version": version}})
+
+
+def test_misaligned_batch_lists_are_rejected():
+    # invocation_ids is read positionally against record_ids, so a length mismatch would let
+    # every id past the gap name the wrong record.
+    with pytest.raises(MalformedEnvelopeError):
+        extract_context(
+            {
+                RESERVED_CONTEXT_KEY: {
+                    **VALID,
+                    "record_ids": ["r1", "r2"],
+                    "invocation_ids": ["inv-1"],
+                }
+            }
+        )
+
+
 def test_partial_context_is_accepted():
     # A producer that populates only some identity facets degrades to less telemetry, not a
     # failed invoke.

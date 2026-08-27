@@ -99,6 +99,19 @@ class InvocationContext(pydantic.BaseModel):
     record_ids: list[str] | None = None
     invocation_ids: list[str | None] | None = None
 
+    @pydantic.model_validator(mode="after")
+    def _batch_lists_stay_index_aligned(self) -> "InvocationContext":
+        if (
+            self.record_ids is not None
+            and self.invocation_ids is not None
+            and len(self.record_ids) != len(self.invocation_ids)
+        ):
+            raise ValueError(
+                "record_ids and invocation_ids must be the same length: "
+                "entry i of invocation_ids describes record i"
+            )
+        return self
+
     @pydantic.field_validator("schema_version")
     @classmethod
     def _known_version(cls, value: str) -> str:
@@ -130,7 +143,12 @@ def extract_context(payload: Mapping[str, Any]) -> InvocationContext | None:
         return InvocationContext.model_validate(raw)
     except pydantic.ValidationError as exc:
         errors = exc.errors()
-        if any(error["loc"] == ("schema_version",) for error in errors):
+        # Only a well-typed version string this package does not know reads as deployment skew; a
+        # schema_version of the wrong type is the caller's malformed context like any other field.
+        reported = _reported_version(raw)
+        if isinstance(reported, str) and any(
+            error["loc"] == ("schema_version",) for error in errors
+        ):
             raise UnsupportedContextVersionError(
                 f"unsupported invocation_context schema_version: "
                 f"{_reported_version(raw)!r}; expected one of {sorted(SUPPORTED_CONTEXT_VERSIONS)}"

@@ -414,6 +414,8 @@ def _wrap_in_fastapi(
         status_code: int
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
+        # Absent means not-the-customer's; see blame_of().
+        blame: Optional[str] = None
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
@@ -429,6 +431,7 @@ def _wrap_in_fastapi(
                 status_code=fn_response.status_code,
                 status_code_text=fn_response.status_code_text,
                 failure_category=fn_response.failure_category,
+                blame=fn_response.blame,
                 usage=fn_response.usage,
             )
         else:

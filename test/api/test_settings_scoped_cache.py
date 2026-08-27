@@ -121,3 +121,14 @@ class TestHandlerFor:
         assert first == second == "handler"
         build.assert_called_once()
         boot.assert_not_called()
+
+
+class TestExpirySweep:
+    def test_an_idle_tenants_expired_handler_is_dropped_by_anothers_insert(self):
+        clock = MagicMock(side_effect=[0.0, 100.0])
+        cache = SettingsScopedCache(ttl_seconds=50, clock=clock)
+
+        cache.get_or_build({"tenant": "a"}, lambda: "handler-a")
+        cache.get_or_build({"tenant": "b"}, lambda: "handler-b")
+
+        assert len(cache._entries) == 1
