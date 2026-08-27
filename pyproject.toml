@@ -89,4 +89,4 @@ fail_under = 15
 
 [tool.uv.sources]
 # Temporary source pin until field-atomic utic-invocation-settings 0.4.0 is published.
-utic-invocation-settings = { git = "https://github.com/Unstructured-IO/utic-public-libs", subdirectory = "libs/utic-invocation-settings", rev = "733a15dd89a1696d3ac646e694f322ea06bc1eaf" }
+utic-invocation-settings = { git = "https://github.com/Unstructured-IO/utic-public-libs", subdirectory = "libs/utic-invocation-settings", rev = "814595faf94b424267b569c92211c093917988c4" }

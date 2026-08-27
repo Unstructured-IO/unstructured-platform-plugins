@@ -1,8 +1,9 @@
 """Transport for the reserved `/invoke` fields: request dependency, `/metadata`, body cap.
 
-The *settings contract* — including the field-atomic wire shape, sealed-field resolution, and what
-an absent field is allowed to mean — lives in `utic_invocation_settings`, next to the crypto it
-governs; every decision about a settings payload is delegated there. The *identity contract* —
+The *settings contract* — including the only accepted sealed `/invoke` shape (the field-set
+carrier), sealed-field resolution, and what an absent field is allowed to mean — lives in
+`utic_invocation_settings`, next to the crypto it governs; every decision about a settings payload
+is delegated there. The *identity contract* —
 the `invocation_context` model — is
 `/invoke` protocol rather than settings security and lives in this package's
 `invocation_context` module. This module is the delivery mechanism for both: getting the payloads
@@ -127,7 +128,8 @@ def add_metadata_route(
     `invocation_settings` and `invocation_context` are transport capabilities: installing the
     dependency makes the host receive, resolve, and bind those fields. The sealed-settings
     capability is stronger: it tells the controller that the plugin handler consumes the resolved
-    field-atomic settings in place of boot-time state, so it remains an explicit opt-in.
+    field-atomic settings in place of boot-time state. The controller may therefore send the
+    versioned field-set carrier, so this remains an explicit opt-in.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
     is registered once. A host wrapper may register at app construction and a plugin can still

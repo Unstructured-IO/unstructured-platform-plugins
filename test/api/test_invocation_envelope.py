@@ -15,7 +15,7 @@ from typing import Optional
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from utic_invocation_settings import Blame
+from utic_invocation_settings import FIELD_SET_FIELDS_KEY, FIELD_SET_FORMAT, Blame
 
 import unstructured_platform_plugins.invocation_settings as invocation_settings_transport
 from unstructured_platform_plugins.invocation_settings import (
@@ -414,8 +414,15 @@ class _ResolutionFailure(Exception):
 class TestSettingsResolutionBoundary:
     """The library owns settings shape and crypto; this package owns delivery and HTTP mapping."""
 
-    def test_opaque_payload_is_delegated_and_final_mapping_is_bound(self, monkeypatch):
-        opaque_payload = {"contract-owned": {"content": "opaque-to-transport"}}
+    def test_field_set_payload_is_delegated_and_final_mapping_is_bound(self, monkeypatch):
+        opaque_payload = {
+            "dag_node_settings": {
+                "format": FIELD_SET_FORMAT,
+                FIELD_SET_FIELDS_KEY: {
+                    "api_key": {"format": "u10d.invocation-settings.v1", "opaque": "member"}
+                },
+            }
+        }
         resolved = {"api_key": "resolved-secret", "max_characters": 700}
         seen = []
 
@@ -432,6 +439,19 @@ class TestSettingsResolutionBoundary:
         assert response.status_code == 200
         assert seen == [opaque_payload]
         assert recorder.seen_settings == resolved
+
+    def test_empty_field_set_is_resolved_and_bound(self):
+        field_set_payload = {
+            "dag_node_settings": {
+                "format": FIELD_SET_FORMAT,
+                FIELD_SET_FIELDS_KEY: {},
+            }
+        }
+
+        recorder, response = _post_invoke({"invocation_settings": field_set_payload})
+
+        assert response.status_code == 200
+        assert recorder.seen_settings == {}
 
     def test_resolution_runs_off_the_event_loop(self, monkeypatch):
         resolver_threads = []
