@@ -1352,7 +1352,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "requests" },
     { name = "unstructured-ingest" },
-    { name = "utic-invocation-settings", git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=1eb2fb77c6e54947600720260e59d446126b35da" },
+    { name = "utic-invocation-settings", git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=733a15dd89a1696d3ac646e694f322ea06bc1eaf" },
     { name = "uvicorn" },
 ]
 
@@ -1381,7 +1381,7 @@ wheels = [
 [[package]]
 name = "utic-invocation-settings"
 version = "0.4.0"
-source = { git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=1eb2fb77c6e54947600720260e59d446126b35da#1eb2fb77c6e54947600720260e59d446126b35da" }
+source = { git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=733a15dd89a1696d3ac646e694f322ea06bc1eaf#733a15dd89a1696d3ac646e694f322ea06bc1eaf" }
 dependencies = [
     { name = "cryptography" },
     { name = "pydantic" },
