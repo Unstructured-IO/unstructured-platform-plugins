@@ -38,7 +38,7 @@
   cleanup timing.
 * **Sealed settings consumption remains opt-in.** Pass
   `invoke_with_sealed_dag_node_settings_v2=True` to `wrap_in_fastapi` / `generate_fast_api` (or
-  `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
+  `--sealed-dag-node-settings-v2` on the CLI) only for a plugin that consumes per-invoke settings;
   it advertises that the application accepts and acts on the versioned v2 document.
   Transport support alone continues to advertise only `invocation_settings` and
   `invocation_context`. A

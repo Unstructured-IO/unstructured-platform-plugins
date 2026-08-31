@@ -125,7 +125,18 @@ class TestHandlerFor:
 
 class TestExpirySweep:
     def test_an_idle_tenants_expired_handler_is_dropped_by_anothers_insert(self):
-        clock = MagicMock(side_effect=[0.0, 100.0])
+        clock = MagicMock(side_effect=[0.0, 0.0, 100.0, 100.0])
+        cache = SettingsScopedCache(ttl_seconds=50, clock=clock)
+
+        cache.get_or_build({"tenant": "a"}, lambda: "handler-a")
+        cache.get_or_build({"tenant": "b"}, lambda: "handler-b")
+
+        assert len(cache._entries) == 1
+
+    def test_an_entry_expiring_while_build_runs_is_swept_by_that_insert(self):
+        # Lookup for tenant b happens at t=10 (a still live), but its build finishes at t=100
+        # (a lapsed); the sweep must judge staleness at insert time, not lookup time.
+        clock = MagicMock(side_effect=[0.0, 0.0, 10.0, 100.0])
         cache = SettingsScopedCache(ttl_seconds=50, clock=clock)
 
         cache.get_or_build({"tenant": "a"}, lambda: "handler-a")
