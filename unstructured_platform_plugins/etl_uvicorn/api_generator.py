@@ -185,14 +185,14 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     try:
         return _wrap_in_fastapi(
             func=func,
             plugin_id=plugin_id,
             precheck_func=precheck_func,
-            invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+            invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
         )
     except Exception as e:
         logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
@@ -203,7 +203,7 @@ def _wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
@@ -451,7 +451,7 @@ def _wrap_in_fastapi(
     add_metadata_route(
         fastapi_app,
         identifier=plugin_id,
-        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+        invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
     )
 
     FastAPIInstrumentor.instrument_app(
@@ -468,7 +468,7 @@ def generate_fast_api(
     id_method: Optional[str] = None,
     precheck_str: Optional[str] = None,
     precheck_method: Optional[str] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -491,5 +491,5 @@ def generate_fast_api(
         func=func,
         plugin_id=plugin_id,
         precheck_func=precheck_func,
-        invoke_with_sealed_dag_node_settings=invoke_with_sealed_dag_node_settings,
+        invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
     )

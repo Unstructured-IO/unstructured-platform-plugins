@@ -5,7 +5,7 @@
   body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
   — the HTTP spelling of the
   library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`, which
-  owns the *settings contract* — including the field-set carrier as the only accepted sealed
+  owns the *settings contract* — including the v2 document as the only accepted sealed
   `/invoke` shape, independent sealed-field resolution, and what an absent field is allowed to
   mean. That split is deliberate: the
   absence rule is a security decision and belongs next to the crypto it governs, while request
@@ -37,9 +37,9 @@
   inside response iteration, so streaming stays correct independently of FastAPI's yield-dependency
   cleanup timing.
 * **Sealed settings consumption remains opt-in.** Pass
-  `invoke_with_sealed_dag_node_settings=True` to `wrap_in_fastapi` / `generate_fast_api` (or
+  `invoke_with_sealed_dag_node_settings_v2=True` to `wrap_in_fastapi` / `generate_fast_api` (or
   `--sealed-dag-node-settings` on the CLI) only for a plugin that consumes per-invoke settings;
-  it advertises that the application accepts and acts on the versioned field-set carrier.
+  it advertises that the application accepts and acts on the versioned v2 document.
   Transport support alone continues to advertise only `invocation_settings` and
   `invocation_context`. A
   plugin that serves a custom `/metadata` payload must register it via `add_metadata_route` (which

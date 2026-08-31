@@ -35,13 +35,13 @@ def test_sealed_capability_is_opt_in():
         wrap_in_fastapi(
             func=_echo_settings,
             plugin_id="mock_plugin",
-            invoke_with_sealed_dag_node_settings=True,
+            invoke_with_sealed_dag_node_settings_v2=True,
         )
     )
 
     payload = client.get("/metadata").json()
 
-    assert "invoke_with_sealed_dag_node_settings" in payload["capabilities"]
+    assert "invoke_with_sealed_dag_node_settings_v2" in payload["capabilities"]
 
 
 def test_reserved_settings_field_binds_without_appearing_in_schema():

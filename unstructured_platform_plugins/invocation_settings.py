@@ -1,7 +1,7 @@
 """Transport for the reserved `/invoke` fields: request dependency, `/metadata`, body cap.
 
-The *settings contract* — including the only accepted sealed `/invoke` shape (the field-set
-carrier), sealed-field resolution, and what an absent field is allowed to mean — lives in
+The *settings contract* — including the only accepted sealed `/invoke` shape (the v2 settings
+document), field-level resolution, and what an absent field is allowed to mean — lives in
 `utic_invocation_settings`, next to the crypto it governs; every decision about a settings payload
 is delegated there. The *identity contract* —
 the `invocation_context` model — is
@@ -43,7 +43,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import get_route_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 from utic_invocation_settings import (
-    INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY,
+    INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_V2_CAPABILITY,
     RESERVED_ENVELOPE_KEY,
     Blame,
     InvocationSettingsError,
@@ -117,7 +117,7 @@ def invocation_envelope(
 def add_metadata_route(
     app: FastAPI,
     identifier: Optional[str] = None,
-    invoke_with_sealed_dag_node_settings: bool = False,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> None:
     """Register GET /metadata advertising the reserved /invoke fields this plugin accepts.
 
@@ -128,16 +128,16 @@ def add_metadata_route(
     `invocation_settings` and `invocation_context` are transport capabilities: installing the
     dependency makes the host receive, resolve, and bind those fields. The sealed-settings
     capability is stronger: it tells the controller that the plugin handler consumes the resolved
-    field-atomic settings in place of boot-time state. The controller may therefore send the
-    versioned field-set carrier, so this remains an explicit opt-in.
+    field-level v2 settings in place of boot-time state. The controller may therefore send the
+    versioned v2 document, so this remains an explicit opt-in.
 
     Last call wins: the payload lives on `app.state` and every call overwrites it, while the route
     is registered once. A host wrapper may register at app construction and a plugin can still
     re-register with its own identifier afterwards, with no route-order dependence.
     """
     capabilities = [RESERVED_ENVELOPE_KEY, RESERVED_CONTEXT_KEY]
-    if invoke_with_sealed_dag_node_settings:
-        capabilities.append(INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_CAPABILITY)
+    if invoke_with_sealed_dag_node_settings_v2:
+        capabilities.append(INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_V2_CAPABILITY)
     app.state.plugin_metadata_payload = {
         "api_version": "3",
         "identifier": identifier,

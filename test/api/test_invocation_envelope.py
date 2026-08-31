@@ -15,7 +15,7 @@ from typing import Optional
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from utic_invocation_settings import FIELD_SET_FIELDS_KEY, FIELD_SET_FORMAT, Blame
+from utic_invocation_settings import FIELDS_DOCUMENT_FORMAT, Blame
 
 import unstructured_platform_plugins.invocation_settings as invocation_settings_transport
 from unstructured_platform_plugins.invocation_settings import (
@@ -32,7 +32,7 @@ BASE_CAPABILITIES = [
 ]
 ALL_CAPABILITIES = [
     *BASE_CAPABILITIES,
-    "invoke_with_sealed_dag_node_settings",
+    "invoke_with_sealed_dag_node_settings_v2",
 ]
 
 
@@ -52,7 +52,7 @@ class TestMetadataRoute:
 
     def test_sealed_consumption_capability_is_opt_in(self):
         app = FastAPI()
-        add_metadata_route(app, invoke_with_sealed_dag_node_settings=True)
+        add_metadata_route(app, invoke_with_sealed_dag_node_settings_v2=True)
 
         with TestClient(app) as client:
             payload = client.get("/metadata").json()
@@ -64,7 +64,11 @@ class TestMetadataRoute:
         # identifier must replace it, not be shadowed by route order.
         app = FastAPI()
         add_metadata_route(app, identifier="wrapper.default")
-        add_metadata_route(app, identifier="plugin.test", invoke_with_sealed_dag_node_settings=True)
+        add_metadata_route(
+            app,
+            identifier="plugin.test",
+            invoke_with_sealed_dag_node_settings_v2=True,
+        )
 
         with TestClient(app) as client:
             payload = client.get("/metadata").json()
@@ -81,7 +85,11 @@ class TestMetadataRoute:
         async def stale_metadata() -> dict:
             return {"api_version": "3", "identifier": "stale", "capabilities": []}
 
-        add_metadata_route(app, identifier="plugin.test", invoke_with_sealed_dag_node_settings=True)
+        add_metadata_route(
+            app,
+            identifier="plugin.test",
+            invoke_with_sealed_dag_node_settings_v2=True,
+        )
 
         with TestClient(app) as client:
             payload = client.get("/metadata").json()
@@ -234,7 +242,7 @@ class TestInvocationEnvelopeBinding:
     def test_install_after_metadata_but_before_invoke_is_supported(self):
         recorder = _Recorder()
         app = FastAPI()
-        add_metadata_route(app, invoke_with_sealed_dag_node_settings=True)
+        add_metadata_route(app, invoke_with_sealed_dag_node_settings_v2=True)
         install_invocation_envelope(app)
 
         @app.post("/invoke")
@@ -414,12 +422,15 @@ class _ResolutionFailure(Exception):
 class TestSettingsResolutionBoundary:
     """The library owns settings shape and crypto; this package owns delivery and HTTP mapping."""
 
-    def test_field_set_payload_is_delegated_and_final_mapping_is_bound(self, monkeypatch):
+    def test_v2_document_is_delegated_and_final_mapping_is_bound(self, monkeypatch):
         opaque_payload = {
             "dag_node_settings": {
-                "format": FIELD_SET_FORMAT,
-                FIELD_SET_FIELDS_KEY: {
-                    "api_key": {"format": "u10d.invocation-settings.v1", "opaque": "member"}
+                "format": FIELDS_DOCUMENT_FORMAT,
+                "settings": {
+                    "api_key": {
+                        "format": "u10d.invocation-settings.field.v1",
+                        "opaque": "member",
+                    }
                 },
             }
         }
@@ -440,15 +451,15 @@ class TestSettingsResolutionBoundary:
         assert seen == [opaque_payload]
         assert recorder.seen_settings == resolved
 
-    def test_empty_field_set_is_resolved_and_bound(self):
-        field_set_payload = {
+    def test_empty_v2_document_is_resolved_and_bound(self):
+        document_payload = {
             "dag_node_settings": {
-                "format": FIELD_SET_FORMAT,
-                FIELD_SET_FIELDS_KEY: {},
+                "format": FIELDS_DOCUMENT_FORMAT,
+                "settings": {},
             }
         }
 
-        recorder, response = _post_invoke({"invocation_settings": field_set_payload})
+        recorder, response = _post_invoke({"invocation_settings": document_payload})
 
         assert response.status_code == 200
         assert recorder.seen_settings == {}
