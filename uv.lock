@@ -1352,7 +1352,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "requests" },
     { name = "unstructured-ingest" },
-    { name = "utic-invocation-settings", git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=98819b0bf9ef4a62fbbdeeed382c2dfea4937a2b" },
+    { name = "utic-invocation-settings", specifier = ">=0.5.0,<1.0.0" },
     { name = "uvicorn" },
 ]
 
@@ -1381,10 +1381,13 @@ wheels = [
 [[package]]
 name = "utic-invocation-settings"
 version = "0.5.0"
-source = { git = "https://github.com/Unstructured-IO/utic-public-libs?subdirectory=libs%2Futic-invocation-settings&rev=98819b0bf9ef4a62fbbdeeed382c2dfea4937a2b#98819b0bf9ef4a62fbbdeeed382c2dfea4937a2b" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "pydantic" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/df/8443bd23f6c0cbf0f179a45dd0e318b6aabd42e231ac6cf727a5f0206915/utic_invocation_settings-0.5.0-py3-none-any.whl", hash = "sha256:75788c7f1cea5b033bdb1a40e19f35c6a3326ce9b016d12039353a78765ecb7e", size = 78072, upload-time = "2026-09-01T16:31:34.114Z" },
 ]
 
 [[package]]
