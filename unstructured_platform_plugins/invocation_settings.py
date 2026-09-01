@@ -1,4 +1,4 @@
-"""Transport for the reserved `/invoke` fields: request dependency, `/metadata`, body cap.
+"""Transport for the reserved `/invoke` fields: request dependency, `/metadata`, optional body cap.
 
 The *settings contract* — including the only accepted sealed `/invoke` shape (the v2 settings
 document), field-level resolution, and what an absent field is allowed to mean — lives in
@@ -17,10 +17,9 @@ model built purely from the wrapped function, and a plugin reads the fields thro
 
 Extraction runs in a route dependency (`bind_invocation_envelope`), so the `/invoke` body is
 buffered and parsed exactly once: Starlette caches both the bytes and the parsed JSON on the
-`Request`, and the dependency reads that cached parse. The request-size cap is the one concern
-that must sit below the framework — neither Starlette nor uvicorn bounds request-body size — and
-`InvokeBodyLimitMiddleware` enforces it by counting bytes as they stream through, without
-buffering.
+`Request`, and the dependency reads that cached parse. Hosts that have established a safe request
+ceiling may opt into `InvokeBodyLimitMiddleware`, which counts bytes as they stream through without
+buffering. Wrapped plugins do not acquire a fleet-wide limit merely by upgrading this package.
 """
 
 from __future__ import annotations
@@ -77,9 +76,9 @@ T = TypeVar("T")
 _METADATA_PATH = "/metadata"
 _INVOKE_PATH = "/invoke"
 
-# Bounds the /invoke request body; generous because batch invokes carry an array of file_data
-# payloads. Nothing below the framework buffers, so this cap is the only guard against
-# unbounded-memory requests.
+# A convenient opt-in ceiling for hosts that have verified it against their request distribution.
+# It is deliberately not the install default: batch invokes carry arrays of file_data payloads,
+# and a wrapper upgrade must not reject previously valid fleet traffic without an explicit choice.
 MAX_INVOKE_BODY_BYTES = 64 * 1024 * 1024
 
 _INVOCATION: ContextVar[tuple[Optional[dict], Optional[InvocationContext]]] = ContextVar(
@@ -186,7 +185,7 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     treated as absent, because absence is the signal to fall back to the boot-time settings file:
     degrading a malformed field to absence would quietly answer a request configured for one
     tenant with whatever the pod happened to boot with. Under
-    `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` there is no settings file to fall back to,
+    `FF_INVOCATION_SETTINGS` there is no settings file to fall back to,
     so absent or plaintext settings fail too — as does any /invoke whose body is not a JSON
     object, since such a body cannot carry the envelope a native pod requires.
     """
@@ -199,9 +198,19 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     try:
         parsed = await request.json()
     except ValueError:
-        # Empty or malformed body: the framework's own validation answers for the body itself;
-        # for the reserved fields it is absence, which resolve_invocation_settings still judges
-        # (absence is a failure on a native pod).
+        # request.json() reads through Starlette's cached body, so this does not consume or buffer
+        # the stream a second time. A truly empty body is absence and remains subject to the
+        # native-pod policy below. Any bytes that fail JSON parsing are a malformed request, not
+        # absence: collapsing them would turn a caller-fixable syntax error into a native pod's
+        # SealedDagNodeSettingsRequiredError (RECIPIENT -> 500).
+        if await request.body():
+            raise UnusableInvocationEnvelope(
+                422,
+                {
+                    "detail": "Invalid JSON body",
+                    "reason": MalformedEnvelopeError.reason,
+                },
+            ) from None
         parsed = None
 
     raw_settings: Optional[Any] = None
@@ -322,28 +331,36 @@ class InvokeBodyLimitMiddleware:
         except ClientDisconnect:
             if not exceeded:
                 raise
-        except Exception:
+        except Exception as exc:
             # The cut body stream can surface downstream as something other than
-            # ClientDisconnect; once the cap is the cause, the 413 below is the answer.
+            # ClientDisconnect; once the cap is the cause, the 413 below is the answer. Retain a
+            # type-only diagnostic for a coincident downstream bug without rendering its message,
+            # which may contain request data or credentials.
             if not exceeded:
                 raise
+            logger.debug(
+                "downstream raised after /invoke body limit was exceeded: %s",
+                type(exc).__name__,
+            )
         if exceeded and not response_started:
             await _send_json(send, 413, {"detail": "Request body too large"})
 
 
-def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_BODY_BYTES) -> None:
+def install_invocation_envelope(app: FastAPI, max_body_bytes: int | None = None) -> None:
     """Install reserved-field binding before registering a FastAPI app's routes.
 
-    Adds `bind_invocation_envelope` through the router's public dependency list, installs the
-    body-size cap beneath the framework, and registers the failure response shape. The dependency
-    is a path/method-aware no-op outside POST /invoke, so routes registered after this call can all
-    inherit it without private dependency-graph mutation. Calling after routes have already been
-    registered raises rather than silently leaving those routes uncovered.
+    Adds `bind_invocation_envelope` through the router's public dependency list and registers the
+    failure response shape. When ``max_body_bytes`` is supplied, also installs the body-size cap
+    beneath the framework. The cap is opt-in because a wrapper upgrade must not impose an
+    unvalidated fleet-wide request limit. The dependency is a path/method-aware no-op outside POST
+    /invoke, so routes registered after this call can all inherit it without private
+    dependency-graph mutation. Calling after routes have already been registered raises rather
+    than silently leaving those routes uncovered.
 
     Idempotent per app because both host-wrapper and plugin setup may call this function, while a
     double installation would resolve settings twice per request. A repeated call asking for a
-    different ``max_body_bytes`` raises because the installed cap cannot be changed and silently
-    keeping the first value would misrepresent the limit actually enforced.
+    different ``max_body_bytes`` raises because the installed configuration cannot be changed and
+    silently keeping the first value would misrepresent the limit actually enforced.
     """
     if getattr(app.state, "invocation_envelope_installed", False):
         installed_max = app.state.invocation_envelope_max_body_bytes
@@ -364,7 +381,8 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int = MAX_INVOKE_B
     app.state.invocation_envelope_installed = True
     app.state.invocation_envelope_max_body_bytes = max_body_bytes
     app.router.dependencies.append(Depends(bind_invocation_envelope))
-    app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
+    if max_body_bytes is not None:
+        app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
     app.add_exception_handler(UnusableInvocationEnvelope, _unusable_envelope_response)
 
 

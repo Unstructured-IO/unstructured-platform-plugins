@@ -1,4 +1,4 @@
-"""The transport for the reserved /invoke fields: dependency binding, /metadata, the body cap.
+"""The transport for the reserved /invoke fields: binding, /metadata, the optional body cap.
 
 The *contract* these exercise — which shapes carry settings, what absence means — is owned and
 tested in `utic_invocation_settings`. What is tested here is delivery: that the framework-parsed
@@ -180,6 +180,27 @@ class TestInvocationEnvelopeBinding:
         assert recorder.seen_settings is None
         assert recorder.seen_context is None
 
+    def test_malformed_nonempty_json_is_caller_error_when_settings_are_required(self, monkeypatch):
+        monkeypatch.setenv("FF_INVOCATION_SETTINGS", "true")
+
+        recorder, response = _post_invoke(b"{")
+
+        assert not recorder.called
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Invalid JSON body",
+            "reason": "malformed_envelope",
+        }
+
+    def test_empty_body_remains_absence_when_settings_are_required(self, monkeypatch):
+        monkeypatch.setenv("FF_INVOCATION_SETTINGS", "true")
+
+        recorder, response = _post_invoke(b"")
+
+        assert not recorder.called
+        assert response.status_code == 500
+        assert response.json()["reason"] == "sealed_dag_node_settings_required"
+
     def test_non_dict_reserved_field_is_rejected(self):
         recorder, response = _post_invoke({"invocation_settings": "not-a-dict"})
 
@@ -300,6 +321,14 @@ class TestInvocationEnvelopeBinding:
         assert not recorder.called
         assert response.status_code == 413
 
+    def test_body_limit_is_disabled_by_default(self):
+        app = _envelope_app(_Recorder())
+
+        assert app.state.invocation_envelope_max_body_bytes is None
+        assert all(
+            middleware.cls is not InvokeBodyLimitMiddleware for middleware in app.user_middleware
+        )
+
     def test_spec_compliant_root_path_scope_still_caps_body(self):
         recorder = _Recorder()
         app = _envelope_app(recorder, max_body_bytes=16)
@@ -335,7 +364,7 @@ class TestInvokeBodyLimitMiddleware:
     """ASGI-level behavior of the streaming byte counter: no buffering, disconnect pass-through."""
 
     @staticmethod
-    def _run(middleware, scope, chunks) -> tuple[list, list]:
+    def _run(middleware, scope, chunks, downstream_app=None) -> tuple[list, list]:
         received = []
         sent = []
 
@@ -345,7 +374,7 @@ class TestInvokeBodyLimitMiddleware:
         async def send(message):
             sent.append(message)
 
-        async def downstream(scope, receive, send):
+        async def default_downstream(scope, receive, send):
             while True:
                 message = await receive()
                 received.append(message)
@@ -354,7 +383,7 @@ class TestInvokeBodyLimitMiddleware:
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"{}"})
 
-        middleware = middleware(downstream)
+        middleware = middleware(downstream_app or default_downstream)
         asyncio.run(middleware(scope, receive, send))
         return received, sent
 
@@ -410,6 +439,27 @@ class TestInvokeBodyLimitMiddleware:
 
         assert sent[0]["status"] == 200
 
+    def test_coincident_downstream_failure_logs_only_its_type(self, caplog):
+        class CoincidentDownstreamFailure(Exception):
+            pass
+
+        async def downstream(_scope, receive, _send):
+            await receive()
+            raise CoincidentDownstreamFailure("request-secret-sentinel")
+
+        chunks = [{"type": "http.request", "body": b"x" * 20, "more_body": False}]
+        with caplog.at_level("DEBUG", logger=invocation_settings_transport.__name__):
+            _, sent = self._run(
+                lambda app: InvokeBodyLimitMiddleware(app, max_body_bytes=16),
+                {"type": "http", "method": "POST", "path": "/invoke"},
+                chunks,
+                downstream_app=downstream,
+            )
+
+        assert sent[0]["status"] == 413
+        assert "CoincidentDownstreamFailure" in caplog.text
+        assert "request-secret-sentinel" not in caplog.text
+
 
 class _ResolutionFailure(Exception):
     reason = "test_resolution_failure"
@@ -441,9 +491,7 @@ class TestSettingsResolutionBoundary:
             seen.append(payload)
             return resolved
 
-        monkeypatch.setattr(
-            invocation_settings_transport, "resolve_invocation_settings", resolve
-        )
+        monkeypatch.setattr(invocation_settings_transport, "resolve_invocation_settings", resolve)
 
         recorder, response = _post_invoke({"invocation_settings": opaque_payload})
 

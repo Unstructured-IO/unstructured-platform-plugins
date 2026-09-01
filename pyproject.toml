@@ -23,7 +23,7 @@ dependencies = [
     "fastapi",
     "click",
     "unstructured-ingest",
-    "utic-invocation-settings>=0.4.0,<1.0.0",
+    "utic-invocation-settings>=0.5.0,<1.0.0",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-exporter-otlp-proto-grpc",
     "dataclasses-json"
@@ -88,5 +88,5 @@ fail_under = 15
     packages = ["/unstructured_platform_plugins"]
 
 [tool.uv.sources]
-# Temporary source pin until v2-capable utic-invocation-settings 0.4.0 is published.
-utic-invocation-settings = { git = "https://github.com/Unstructured-IO/utic-public-libs", subdirectory = "libs/utic-invocation-settings", rev = "98f5b0eff7e18130788062119436b4eb780faa87" }
+# Temporary source pin until v2-capable utic-invocation-settings 0.5.0 is published.
+utic-invocation-settings = { git = "https://github.com/Unstructured-IO/utic-public-libs", subdirectory = "libs/utic-invocation-settings", rev = "98819b0bf9ef4a62fbbdeeed382c2dfea4937a2b" }

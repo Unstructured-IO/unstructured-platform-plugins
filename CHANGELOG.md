@@ -4,7 +4,7 @@
   `unstructured_platform_plugins.invocation_settings` holds the `/invoke` binding dependency and
   body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
   — the HTTP spelling of the
-  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.4.0`, which
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.5.0`, which
   owns the *settings contract* — including the v2 document as the only accepted sealed
   `/invoke` shape, independent sealed-field resolution, and what an absent field is allowed to
   mean. That split is deliberate: the
@@ -24,7 +24,7 @@
   settings payload is delegated to `utic-invocation-settings`, and only the final resolved mapping
   is exposed through `current_invocation_settings()` / `current_invocation_context()`.
   An absent field preserves the existing fallback behaviour; under
-  `FF_REQUIRE_INVOKE_WITH_SEALED_DAG_NODE_SETTINGS` missing or plaintext settings fail closed.
+  `FF_INVOCATION_SETTINGS` missing or plaintext settings fail closed.
   Repeated installation is safe: the dependency installs once and the last `/metadata`
   registration wins.
 * **Extraction is a route dependency.** `bind_invocation_envelope` reads the body the framework
@@ -32,10 +32,11 @@
   decoded exactly once per request. `install_invocation_envelope` contributes that path-aware
   dependency through the router's public dependency list before `/invoke` is registered; no
   private FastAPI dependency graph is mutated. It also registers the failure response shape and
-  installs `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413 over the cap
-  without buffering. Async-generator plugins explicitly re-enter the captured request binding
-  inside response iteration, so streaming stays correct independently of FastAPI's yield-dependency
-  cleanup timing.
+  can optionally install `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413
+  over a host-selected cap without buffering. The cap is disabled by default so a wrapper upgrade
+  cannot impose an unvalidated fleet-wide request limit. Async-generator plugins explicitly
+  re-enter the captured request binding inside response iteration, so streaming stays correct
+  independently of FastAPI's yield-dependency cleanup timing.
 * **Sealed settings consumption remains opt-in.** Pass
   `invoke_with_sealed_dag_node_settings_v2=True` to `wrap_in_fastapi` / `generate_fast_api` (or
   `--sealed-dag-node-settings-v2` on the CLI) only for a plugin that consumes per-invoke settings;
