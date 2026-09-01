@@ -25,29 +25,13 @@ from typing import Any, Mapping
 import pydantic
 from utic_invocation_settings import Blame, InvocationSettingsError, MalformedEnvelopeError
 
-# Reserved key carrying the invocation context in the invoke request body.
-RESERVED_CONTEXT_KEY = "invocation_context"
-
-# Context payload versions this package understands. Additive keys do not bump this; changing an
-# existing key's meaning incompatibly does.
-SUPPORTED_CONTEXT_VERSIONS = frozenset({"1"})
-
-# The identity facets that become telemetry dimensions. Shared rather than per-service policy:
-# every hop on one invocation's path has to pick the same fields, or the same request is attributed
-# differently depending on which component emitted the event. Excludes the batch fields, which
-# describe the work rather than who it belongs to.
-DIMENSION_FIELDS = (
-    "invocation_id",
-    "tenant_id",
-    "org_id",
-    "job_id",
-    "workflow_id",
-    "attribution_id",
-    "dag_node_id",
-    "dag_node_type",
-    "dag_node_subtype",
-    "record_id",
-    "attempt",
+from unstructured_platform_plugins.generated.invocation_context_v1 import (
+    DIMENSION_FIELDS,
+    RESERVED_CONTEXT_KEY,
+    SUPPORTED_CONTEXT_VERSIONS,
+)
+from unstructured_platform_plugins.generated.invocation_context_v1 import (
+    InvocationContext as _GeneratedInvocationContext,
 )
 
 # Sentinel distinguishing a truly-absent reserved key from one present with a ``None`` value.
@@ -68,36 +52,13 @@ class UnsupportedContextVersionError(InvocationSettingsError):
     blame = Blame.CONTENT
 
 
-class InvocationContext(pydantic.BaseModel):
+class InvocationContext(_GeneratedInvocationContext):
     """Request-scoped identity delivered alongside one claimed unit of work.
 
-    ``extra="allow"`` keeps additive fields available through ``model_extra`` instead of silently
-    dropping them.
+    The field shape, version literal, extra-field policy, reserved key, and dimensions are generated
+    from the ratified schema. This adapter retains the cross-field invariant JSON Schema cannot
+    express.
     """
-
-    model_config = pydantic.ConfigDict(extra="allow")
-
-    schema_version: str = "1"
-
-    invocation_id: str | None = None
-    job_id: str | None = None
-    workflow_id: str | None = None
-    attribution_id: str | None = None
-    tenant_id: str | None = None
-    org_id: str | None = None
-    dag_node_id: str | None = None
-    dag_node_type: str | None = None
-    dag_node_subtype: str | None = None
-    record_id: str | None = None
-    attempt: int | None = None
-    job_created_timestamp: str | None = None
-
-    # Added by the controller on the way to the plugin, not by the work API. The batch pair is
-    # index-aligned: entry i of `invocation_ids` is the invocation id of record i, or None where
-    # that record carried no context. There is deliberately no `work_dir` field: scratch space is
-    # the plugin's implementation detail (tempfile / uuid-named paths), not invoke-contract surface.
-    record_ids: list[str] | None = None
-    invocation_ids: list[str | None] | None = None
 
     @pydantic.model_validator(mode="after")
     def _batch_lists_stay_index_aligned(self) -> "InvocationContext":
@@ -111,17 +72,6 @@ class InvocationContext(pydantic.BaseModel):
                 "entry i of invocation_ids describes record i"
             )
         return self
-
-    @pydantic.field_validator("schema_version")
-    @classmethod
-    def _known_version(cls, value: str) -> str:
-        if value not in SUPPORTED_CONTEXT_VERSIONS:
-            raise ValueError(
-                f"unsupported invocation_context schema_version {value!r}; "
-                f"this package understands {sorted(SUPPORTED_CONTEXT_VERSIONS)}"
-            )
-        return value
-
 
 def extract_context(payload: Mapping[str, Any]) -> InvocationContext | None:
     """Return the :class:`InvocationContext` from ``payload[RESERVED_CONTEXT_KEY]``.

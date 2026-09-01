@@ -11,14 +11,14 @@
   absence rule is a security decision and belongs next to the crypto it governs, while request
   handling and route registration belong here, where a web framework is already a dependency.
   Nothing about the sealed-settings wire format is decided in this repository.
-* **This package now owns the `invocation_context` identity model.**
-  `unstructured_platform_plugins.invocation_context` holds `InvocationContext`,
-  `extract_context`, `dimensions`, `RESERVED_CONTEXT_KEY`, `DIMENSION_FIELDS`,
-  `SUPPORTED_CONTEXT_VERSIONS` and `UnsupportedContextVersionError`. The context is `/invoke`
-  protocol identity — no crypto, no secrets — so it lives with the plugin protocol. Its errors
-  subclass the shared `InvocationSettingsError` taxonomy, so hosts classify context failures with
-  the same `reason`/`blame` machinery as settings failures. This module is the public home for
-  the surface `utic-invocation-settings 0.2.x` carried and its `0.3.0` removed.
+* **The wrapper consumes the ratified `invocation_context` contract locally.**
+  The field model, reserved key, supported versions, and dimension allow-list are generated from
+  `https://schemas.u10d.dev/invocation-context/v1.json`. The handwritten
+  `unstructured_platform_plugins.invocation_context` adapter retains transport error mapping and
+  the equal-length batch invariant that JSON Schema cannot express. The ratified
+  `https://schemas.u10d.dev/errors/audience/v1.json` vocabulary also replaces the redundant
+  top-level `blame` response field: a legacy `UserError` now carries a complete `plugin_error`
+  metadata object with `audience=user`.
 * **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
   `invocation_context` fields are handled outside the generated handler schema, the opaque
   settings payload is delegated to `utic-invocation-settings`, and only the final resolved mapping

@@ -11,6 +11,7 @@ from utic_invocation_settings import (
     SealedDagNodeSettingsRequiredError,
 )
 
+from unstructured_platform_plugins.generated import error_audience_v1, invocation_context_v1
 from unstructured_platform_plugins.invocation_context import (
     RESERVED_CONTEXT_KEY,
     InvocationContext,
@@ -30,6 +31,28 @@ VALID = {
     "record_id": "rec-1",
     "attempt": 2,
 }
+
+
+def test_local_bindings_name_the_ratified_schema_ids():
+    assert (
+        invocation_context_v1.SCHEMA_ID
+        == "https://schemas.u10d.dev/invocation-context/v1.json"
+    )
+    assert error_audience_v1.SCHEMA_ID == "https://schemas.u10d.dev/errors/audience/v1.json"
+    assert invocation_context_v1.RESERVED_CONTEXT_KEY == RESERVED_CONTEXT_KEY
+    assert invocation_context_v1.DIMENSION_FIELDS == (
+        "invocation_id",
+        "tenant_id",
+        "org_id",
+        "job_id",
+        "workflow_id",
+        "attribution_id",
+        "dag_node_id",
+        "dag_node_type",
+        "dag_node_subtype",
+        "record_id",
+        "attempt",
+    )
 
 
 def test_extracts_identity_fields_from_body():

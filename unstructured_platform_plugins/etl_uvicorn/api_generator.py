@@ -25,6 +25,7 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_schema_dict,
     map_inputs,
 )
+from unstructured_platform_plugins.generated.error_audience_v1 import ErrorAudience
 from unstructured_platform_plugins.invocation_settings import (
     add_metadata_route,
     current_invocation_context,
@@ -50,6 +51,16 @@ logger = logging.getLogger("uvicorn.error")
 class MessageChannels(BaseModel):
     infos: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class PluginErrorMetadata(BaseModel):
+    """Canonical metadata nested at ``plugin_error`` on a failed legacy response."""
+
+    error_type: str
+    error_reason: str
+    dependency: Optional[str] = None
+    audience: Optional[ErrorAudience] = None
+    retryable: bool = False
 
 
 def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
@@ -100,13 +111,20 @@ def failure_category_of(error: BaseException) -> Optional[str]:
     return category if isinstance(category, str) else None
 
 
-def blame_of(error: BaseException) -> Optional[str]:
-    """Return ``user`` only for failures in something the customer owns.
+def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
+    """Map the legacy UserError family onto the canonical plugin-error envelope.
 
-    An absent value means not-the-customer's: orchestrators must not infer customer fault from an
-    HTTP status code, which also carries transport semantics.
+    The ratified ErrorAudience vocabulary owns the wire spelling. A non-user failure remains
+    unclassified: orchestrators must not infer actionability from its HTTP status.
     """
-    return "user" if isinstance(error, UserError) else None
+    if not isinstance(error, UserError):
+        return None
+    return PluginErrorMetadata(
+        error_type="configuration",
+        error_reason=failure_category_of(error) or "invalid_input",
+        audience=ErrorAudience.USER,
+        retryable=False,
+    )
 
 
 def status_code_of(error: BaseException) -> int:
@@ -227,8 +245,7 @@ def _wrap_in_fastapi(
         filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
-        # Absent means not-the-customer's; see blame_of().
-        blame: Optional[str] = None
+        plugin_error: Optional[PluginErrorMetadata] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
@@ -291,7 +308,7 @@ def _wrap_in_fastapi(
                                     status_code=status_code_of(e),
                                     status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
                                     failure_category=failure_category_of(e),
-                                    blame=blame_of(e),
+                                    plugin_error=plugin_error_of(e),
                                 ).model_dump_json()
                                 + "\n"
                             )
@@ -336,7 +353,7 @@ def _wrap_in_fastapi(
                 status_code=status_code_of(exc),
                 status_code_text=_safe_str(exc),
                 failure_category=failure_category_of(exc),
-                blame=blame_of(exc),
+                plugin_error=plugin_error_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
@@ -414,8 +431,7 @@ def _wrap_in_fastapi(
         status_code: int
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
-        # Absent means not-the-customer's; see blame_of().
-        blame: Optional[str] = None
+        plugin_error: Optional[PluginErrorMetadata] = None
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
@@ -431,7 +447,7 @@ def _wrap_in_fastapi(
                 status_code=fn_response.status_code,
                 status_code_text=fn_response.status_code_text,
                 failure_category=fn_response.failure_category,
-                blame=fn_response.blame,
+                plugin_error=fn_response.plugin_error,
                 usage=fn_response.usage,
             )
         else:
