@@ -184,8 +184,17 @@ async def _unusable_envelope_response(
 
 def _is_malformed_json_validation(exc: RequestValidationError) -> bool:
     """Whether FastAPI rejected the request body before route dependencies could run."""
+    # A top-level JSONDecodeError stores the raw document and reports its integer parser offset as
+    # exactly ("body", offset). Pydantic's Json fields also emit `json_invalid`, but by then the
+    # outer request has been decoded into a mapping/list and the location continues through the
+    # model field. Those are ordinary schema-validation errors and must retain FastAPI's detail.
+    if not isinstance(exc.body, (str, bytes, bytearray)):
+        return False
     return any(
-        error.get("type") == "json_invalid" and tuple(error.get("loc", ()))[:1] == ("body",)
+        error.get("type") == "json_invalid"
+        and len(location := tuple(error.get("loc", ()))) == 2
+        and location[0] == "body"
+        and isinstance(location[1], int)
         for error in exc.errors()
     )
 

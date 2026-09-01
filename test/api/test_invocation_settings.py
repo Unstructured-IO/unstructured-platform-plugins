@@ -3,11 +3,15 @@
 import json
 from typing import Optional
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Json
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import wrap_in_fastapi
-from unstructured_platform_plugins.invocation_settings import current_invocation_settings
+from unstructured_platform_plugins.invocation_settings import (
+    current_invocation_settings,
+    install_invocation_envelope,
+)
 
 
 class _Echo(BaseModel):
@@ -17,6 +21,10 @@ class _Echo(BaseModel):
 
 def _echo_settings(content: str) -> _Echo:
     return _Echo(content=content, settings=current_invocation_settings())
+
+
+class _NestedJsonRequest(BaseModel):
+    payload: Json[dict[str, object]]
 
 
 def test_metadata_route_is_registered_with_transport_capabilities():
@@ -92,6 +100,29 @@ def test_generated_invoke_route_preserves_other_request_validation_errors():
     assert "reason" not in payload
     assert isinstance(payload["detail"], list)
     assert any(error["loc"] == ["body", "content"] for error in payload["detail"])
+
+
+def test_generated_invoke_route_preserves_malformed_nested_json_field_error():
+    app = FastAPI()
+    install_invocation_envelope(app)
+
+    @app.post("/invoke")
+    async def invoke(_request: _NestedJsonRequest):
+        return None
+
+    client = TestClient(app)
+
+    # The outer request document is valid; only the string inside its Pydantic Json field is not.
+    resp = client.post("/invoke", json={"payload": "{"})
+
+    assert resp.status_code == 422
+    payload = resp.json()
+    assert "reason" not in payload
+    assert isinstance(payload["detail"], list)
+    assert any(
+        error["type"] == "json_invalid" and error["loc"] == ["body", "payload"]
+        for error in payload["detail"]
+    )
 
 
 def test_sync_function_sees_bound_settings_across_the_executor():
