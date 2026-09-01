@@ -15,17 +15,21 @@ They never appear in a plugin's declared signature, so `wrap_in_fastapi` keeps p
 model built purely from the wrapped function, and a plugin reads the fields through
 `current_invocation_settings()` / `current_invocation_context()` instead.
 
-Extraction runs in a route dependency (`bind_invocation_envelope`), so the `/invoke` body is
-buffered and parsed exactly once: Starlette caches both the bytes and the parsed JSON on the
-`Request`, and the dependency reads that cached parse. Hosts that have established a safe request
-ceiling may opt into `InvokeBodyLimitMiddleware`, which counts bytes as they stream through without
-buffering. Wrapped plugins do not acquire a fleet-wide limit merely by upgrading this package.
+Well-formed extraction runs in a route dependency (`bind_invocation_envelope`), so the `/invoke`
+body is buffered and parsed exactly once: Starlette caches both the bytes and the parsed JSON on
+the `Request`, and the dependency reads that cached parse. Generated routes can reject malformed
+JSON while validating their typed body before dependencies run, so the installer normalizes that
+specific validation failure to the same transport error. Hosts that have established a safe
+request ceiling may opt into `InvokeBodyLimitMiddleware`, which counts bytes as they stream through
+without buffering. Wrapped plugins do not acquire a fleet-wide limit merely by upgrading this
+package.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import threading
@@ -37,6 +41,8 @@ from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 from starlette.routing import get_route_path
@@ -174,6 +180,14 @@ async def _unusable_envelope_response(
     _request: Request, exc: UnusableInvocationEnvelope
 ) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content=exc.payload)
+
+
+def _is_malformed_json_validation(exc: RequestValidationError) -> bool:
+    """Whether FastAPI rejected the request body before route dependencies could run."""
+    return any(
+        error.get("type") == "json_invalid" and tuple(error.get("loc", ()))[:1] == ("body",)
+        for error in exc.errors()
+    )
 
 
 async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
@@ -350,12 +364,14 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int | None = None)
     """Install reserved-field binding before registering a FastAPI app's routes.
 
     Adds `bind_invocation_envelope` through the router's public dependency list and registers the
-    failure response shape. When ``max_body_bytes`` is supplied, also installs the body-size cap
-    beneath the framework. The cap is opt-in because a wrapper upgrade must not impose an
-    unvalidated fleet-wide request limit. The dependency is a path/method-aware no-op outside POST
-    /invoke, so routes registered after this call can all inherit it without private
-    dependency-graph mutation. Calling after routes have already been registered raises rather
-    than silently leaving those routes uncovered.
+    failure response shape. FastAPI parses a generated route's typed body before dependencies run,
+    so malformed JSON validation is normalized to that same response shape at the app boundary;
+    every other validation error retains the handler the app already had. When ``max_body_bytes``
+    is supplied, also installs the body-size cap beneath the framework. The cap is opt-in because
+    a wrapper upgrade must not impose an unvalidated fleet-wide request limit. The dependency is a
+    path/method-aware no-op outside POST /invoke, so routes registered after this call can all
+    inherit it without private dependency-graph mutation. Calling after routes have already been
+    registered raises rather than silently leaving those routes uncovered.
 
     Idempotent per app because both host-wrapper and plugin setup may call this function, while a
     double installation would resolve settings twice per request. A repeated call asking for a
@@ -384,6 +400,28 @@ def install_invocation_envelope(app: FastAPI, max_body_bytes: int | None = None)
     if max_body_bytes is not None:
         app.add_middleware(InvokeBodyLimitMiddleware, max_body_bytes=max_body_bytes)
     app.add_exception_handler(UnusableInvocationEnvelope, _unusable_envelope_response)
+
+    previous_validation_handler = app.exception_handlers.get(
+        RequestValidationError, request_validation_exception_handler
+    )
+
+    async def invocation_request_validation_response(request: Request, exc: RequestValidationError):
+        if (
+            request.method == "POST"
+            and get_route_path(request.scope) == _INVOKE_PATH
+            and _is_malformed_json_validation(exc)
+        ):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": "Invalid JSON body",
+                    "reason": MalformedEnvelopeError.reason,
+                },
+            )
+        response = previous_validation_handler(request, exc)
+        return await response if inspect.isawaitable(response) else response
+
+    app.add_exception_handler(RequestValidationError, invocation_request_validation_response)
 
 
 def settings_cache_key(invocation_settings: Mapping[str, Any]) -> str:

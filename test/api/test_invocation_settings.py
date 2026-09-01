@@ -66,6 +66,34 @@ def test_reserved_settings_field_binds_without_appearing_in_schema():
     assert "invocation_settings" not in properties
 
 
+def test_generated_invoke_route_classifies_malformed_json_as_caller_error():
+    client = TestClient(wrap_in_fastapi(func=_echo_settings, plugin_id="mock_plugin"))
+
+    resp = client.post(
+        "/invoke",
+        content=b"{",
+        headers={"content-type": "application/json"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "detail": "Invalid JSON body",
+        "reason": "malformed_envelope",
+    }
+
+
+def test_generated_invoke_route_preserves_other_request_validation_errors():
+    client = TestClient(wrap_in_fastapi(func=_echo_settings, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={})
+
+    assert resp.status_code == 422
+    payload = resp.json()
+    assert "reason" not in payload
+    assert isinstance(payload["detail"], list)
+    assert any(error["loc"] == ["body", "content"] for error in payload["detail"])
+
+
 def test_sync_function_sees_bound_settings_across_the_executor():
     # Sync functions run in an executor thread; the context must be copied there or the
     # request-scoped binding would read as absent.
