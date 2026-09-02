@@ -43,6 +43,7 @@ from typing import Any, Optional, TypeVar
 from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from opentelemetry import trace
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 from starlette.routing import get_route_path
@@ -59,6 +60,7 @@ from utic_invocation_settings import (
 from unstructured_platform_plugins.invocation_context import (
     RESERVED_CONTEXT_KEY,
     InvocationContext,
+    dimensions,
     extract_context,
 )
 
@@ -281,6 +283,15 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
             raise UnusableInvocationEnvelope(
                 status, {"detail": detail, "reason": exc.reason}
             ) from exc
+
+    # Keep plugin-side request spans aligned with the controller's wide-event dimensions. The
+    # ratified DIMENSION_FIELDS list deliberately excludes batch correlation and unknown additive
+    # fields, so only the shared invocation identity is promoted to indexed telemetry.
+    invocation_dimensions = dimensions(invocation_context)
+    if invocation_dimensions:
+        span = trace.get_current_span()
+        for key, value in invocation_dimensions.items():
+            span.set_attribute(key, value)
 
     with invocation_envelope(invocation_settings, invocation_context):
         yield

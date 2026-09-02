@@ -173,6 +173,40 @@ class TestInvocationEnvelopeBinding:
         assert recorder.seen_settings == {"model": "m"}
         assert recorder.seen_context.job_id == "job-1"
 
+    def test_context_dimensions_are_attached_to_the_current_span(self, monkeypatch):
+        attributes = {}
+
+        class _Span:
+            def set_attribute(self, key, value):
+                attributes[key] = value
+
+        monkeypatch.setattr(
+            invocation_settings_transport.trace,
+            "get_current_span",
+            lambda: _Span(),
+        )
+
+        _, response = _post_invoke(
+            {
+                "invocation_context": {
+                    "schema_version": "1",
+                    "tenant_id": "tenant-1",
+                    "job_id": "job-1",
+                    "attempt": 2,
+                    "record_ids": ["record-1"],
+                    "invocation_ids": ["invocation-1"],
+                    "future_field": "preserved-but-not-a-dimension",
+                }
+            }
+        )
+
+        assert response.status_code == 200
+        assert attributes == {
+            "tenant_id": "tenant-1",
+            "job_id": "job-1",
+            "attempt": 2,
+        }
+
     def test_absent_fields_bind_none(self):
         recorder, response = _post_invoke({"element_dicts": "/in.json"})
 
