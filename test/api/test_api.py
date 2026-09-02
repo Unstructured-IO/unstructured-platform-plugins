@@ -18,7 +18,16 @@ from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     UsageData,
     wrap_in_fastapi,
 )
+from unstructured_platform_plugins.generated.error_audience_v1 import ErrorAudience
 from unstructured_platform_plugins.schema.filedata_meta import FileDataMeta
+
+
+class PluginErrorMetadata(BaseModel):
+    error_type: str
+    error_reason: str
+    dependency: Optional[str] = None
+    audience: Optional[ErrorAudience] = None
+    retryable: bool = False
 
 
 class InvokeResponse(BaseModel):
@@ -26,6 +35,7 @@ class InvokeResponse(BaseModel):
     status_code: int
     filedata_meta: FileDataMeta
     status_code_text: Optional[str] = None
+    plugin_error: Optional[PluginErrorMetadata] = None
     output: Optional[Any] = None
     file_data: Optional[Union[FileData, BatchFileData]] = None
 
@@ -220,6 +230,67 @@ def test_http_exception_handling(file_data):
     # HTTPException should be handled by the HTTPException handler
     assert invoke_response.status_code == 404
     assert invoke_response.status_code_text == "Not found"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_user_error_declares_canonical_user_audience(file_data):
+    """Only the UserError family declares a user-actionable plugin error."""
+    from test.assets.exception_status_code import function_raises_user_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.status_code >= 400
+    assert invoke_response.plugin_error is not None
+    assert invoke_response.plugin_error.audience is ErrorAudience.USER
+    assert invoke_response.plugin_error.error_type == "configuration"
+    assert invoke_response.plugin_error.error_reason == "invalid_input"
+    assert invoke_response.plugin_error.retryable is False
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_non_user_failures_declare_no_plugin_error(file_data):
+    """Anything undeclared is not the customer's: an orchestrator must not infer customer fault
+    from the status code, which also carries transport semantics."""
+    from test.assets.exception_status_code import function_raises_provider_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.plugin_error is None
+
+
+def test_streaming_user_error_declares_user_audience():
+    """The streaming error envelope carries the same audience as the non-streaming path."""
+    from test.assets.exception_status_code import (
+        async_gen_function_raises_user_error_mid_stream as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": mock_file_data[0].model_dump()})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    import json
+
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 2  # One yielded item, then the error envelope
+
+    assert InvokeResponse.model_validate(json.loads(lines[0])).plugin_error is None
+    error_response = InvokeResponse.model_validate(json.loads(lines[1]))
+    assert error_response.status_code >= 400
+    assert error_response.plugin_error is not None
+    assert error_response.plugin_error.audience is ErrorAudience.USER
 
 
 @pytest.mark.parametrize(
@@ -608,7 +679,24 @@ def test_precheck_reports_failure_category_from_raised_error():
     body = resp.json()
     assert body["status_code"] == 403
     assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    # A plain exception is not the customer's to fix.
+    assert body["plugin_error"] is None
     assert "credential rejected" in body["status_code_text"]
+
+
+def test_precheck_declares_user_audience_like_invoke_does():
+    from unstructured_ingest.error import UserError
+
+    def user_fault_precheck() -> None:
+        raise UserError("bad credentials")
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=user_fault_precheck)
+    )
+
+    body = client.get("/precheck").json()
+
+    assert body["plugin_error"]["audience"] == "user"
 
 
 def test_precheck_success_has_no_failure_category():

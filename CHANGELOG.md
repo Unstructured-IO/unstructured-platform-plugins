@@ -1,3 +1,60 @@
+## 0.1.0
+
+* **This package now owns the `/invoke` transport for the reserved fields.**
+  `unstructured_platform_plugins.invocation_settings` holds the `/invoke` binding dependency and
+  body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
+  — the HTTP spelling of the
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.5.0`, which
+  owns the *settings contract* — including the v2 document as the only accepted sealed
+  `/invoke` shape, independent sealed-field resolution, and what an absent field is allowed to
+  mean. That split is deliberate: the
+  absence rule is a security decision and belongs next to the crypto it governs, while request
+  handling and route registration belong here, where a web framework is already a dependency.
+  Nothing about the sealed-settings wire format is decided in this repository.
+* **The wrapper consumes the ratified `invocation_context` contract locally.**
+  The field model, reserved key, supported versions, and dimension allow-list are generated from
+  `https://schemas.u10d.dev/invocation-context/v1.json`. The handwritten
+  `unstructured_platform_plugins.invocation_context` adapter retains transport error mapping and
+  the equal-length batch invariant that JSON Schema cannot express. The ratified
+  `https://schemas.u10d.dev/errors/audience/v1.json` vocabulary also replaces the redundant
+  top-level `blame` response field: a legacy `UserError` now carries a complete `plugin_error`
+  metadata object with `audience=user`.
+* **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
+  `invocation_context` fields are handled outside the generated handler schema, the opaque
+  settings payload is delegated to `utic-invocation-settings`, and only the final resolved mapping
+  is exposed through `current_invocation_settings()` / `current_invocation_context()`.
+  An absent field preserves the existing fallback behaviour; under
+  `FF_INVOCATION_SETTINGS` missing or plaintext settings fail closed.
+  Repeated installation is safe: the dependency installs once and the last `/metadata`
+  registration wins.
+* **Extraction is a route dependency.** `bind_invocation_envelope` reads the body the framework
+  buffered and parsed (`request.json()` is Starlette-cached), so the `/invoke` body is held and
+  decoded exactly once per request. `install_invocation_envelope` contributes that path-aware
+  dependency through the router's public dependency list before `/invoke` is registered; no
+  private FastAPI dependency graph is mutated. It also registers the failure response shape and
+  can optionally install `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413
+  over a host-selected cap without buffering. The cap is disabled by default so a wrapper upgrade
+  cannot impose an unvalidated fleet-wide request limit. Async-generator plugins explicitly
+  re-enter the captured request binding inside response iteration, so streaming stays correct
+  independently of FastAPI's yield-dependency cleanup timing.
+* **Sealed settings consumption remains opt-in.** Pass
+  `invoke_with_sealed_dag_node_settings_v2=True` to `wrap_in_fastapi` / `generate_fast_api` (or
+  `--sealed-dag-node-settings-v2` on the CLI) only for a plugin that consumes per-invoke settings;
+  it advertises that the application accepts and acts on the versioned v2 document.
+  Transport support alone continues to advertise only `invocation_settings` and
+  `invocation_context`. A
+  plugin that serves a custom `/metadata` payload must register it via `add_metadata_route` (which
+  replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction is
+  shadowed by the wrapper's earlier registration.
+* **Resolution runs off the event loop.** Resolution may perform blocking cryptography for
+  independently sealed fields and this dependency fronts every invoke on the pod, so it is
+  dispatched with `asyncio.to_thread` rather than blocking the loop.
+* **Failures map through the library's blame taxonomy**, not a flat 500: only a caller-fixable
+  fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
+  mount are all 5xx, which keeps the controller's blame classification off the customer. Responses
+  carry the error's class name and never its message, which can embed request-controlled values.
+* **Python floor is now 3.11** (required by `utic-invocation-settings`).
+
 ## 0.0.46
 
 * **Carry preflight failure categories through standard `/precheck` responses.**

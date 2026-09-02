@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
-from unstructured_ingest.error import UnstructuredIngestError
+from unstructured_ingest.error import UnstructuredIngestError, UserError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -24,6 +24,14 @@ from unstructured_platform_plugins.etl_uvicorn.utils import (
     get_plugin_id,
     get_schema_dict,
     map_inputs,
+)
+from unstructured_platform_plugins.generated.error_audience_v1 import ErrorAudience
+from unstructured_platform_plugins.invocation_settings import (
+    add_metadata_route,
+    current_invocation_context,
+    current_invocation_settings,
+    install_invocation_envelope,
+    invocation_envelope,
 )
 from unstructured_platform_plugins.schema import FileDataMeta, NewRecord, UsageData
 from unstructured_platform_plugins.schema.json_schema import (
@@ -43,6 +51,16 @@ logger = logging.getLogger("uvicorn.error")
 class MessageChannels(BaseModel):
     infos: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class PluginErrorMetadata(BaseModel):
+    """Canonical metadata nested at ``plugin_error`` on a failed legacy response."""
+
+    error_type: str
+    error_reason: str
+    dependency: Optional[str] = None
+    audience: Optional[ErrorAudience] = None
+    retryable: bool = False
 
 
 def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
@@ -91,6 +109,22 @@ def failure_category_of(error: BaseException) -> Optional[str]:
     """Return the error's failure_category only when it is a plain string."""
     category = _error_attr(error, "failure_category")
     return category if isinstance(category, str) else None
+
+
+def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
+    """Map the legacy UserError family onto the canonical plugin-error envelope.
+
+    The ratified ErrorAudience vocabulary owns the wire spelling. A non-user failure remains
+    unclassified: orchestrators must not infer actionability from its HTTP status.
+    """
+    if not isinstance(error, UserError):
+        return None
+    return PluginErrorMetadata(
+        error_type="configuration",
+        error_reason=failure_category_of(error) or "invalid_input",
+        audience=ErrorAudience.USER,
+        retryable=False,
+    )
 
 
 def status_code_of(error: BaseException) -> int:
@@ -169,9 +203,15 @@ def wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     try:
-        return _wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)
+        return _wrap_in_fastapi(
+            func=func,
+            plugin_id=plugin_id,
+            precheck_func=precheck_func,
+            invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
+        )
     except Exception as e:
         logger.error(f"failed to wrap function in FastAPI: {e}", exc_info=True)
         raise EtlApiException(e) from e
@@ -181,6 +221,7 @@ def _wrap_in_fastapi(
     func: Callable,
     plugin_id: str,
     precheck_func: Optional[Callable] = None,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     if precheck_func is not None:
         check_precheck_func(precheck_func=precheck_func)
@@ -191,6 +232,8 @@ def _wrap_in_fastapi(
         logger.warning("usage data not an expected parameter, omitting")
 
     fastapi_app = FastAPI()
+    # Installation contributes a public router dependency, so it must happen before /invoke.
+    install_invocation_envelope(fastapi_app)
 
     response_type = get_output_sig(func)
     filedata_meta_model = update_filedata_model(response_type)
@@ -202,6 +245,7 @@ def _wrap_in_fastapi(
         filedata_meta: Optional[filedata_meta_model] = None
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
+        plugin_error: Optional[PluginErrorMetadata] = None
         output: Optional[response_type] = None
         message_channels: MessageChannels = Field(default_factory=MessageChannels)
 
@@ -226,10 +270,34 @@ def _wrap_in_fastapi(
             request_dict["filedata_meta"] = filedata_meta
         try:
             if inspect.isasyncgenfunction(func):
+                bound_settings = current_invocation_settings()
+                bound_context = current_invocation_context()
+
                 # Stream response if function is an async generator
                 async def _stream_response():
-                    try:
-                        async for output in func(**(request_dict or {})):
+                    # FastAPI 0.117 closes yield dependencies before iterating a
+                    # StreamingResponse. Re-enter the captured binding inside the generator so the
+                    # plugin sees the right request regardless of dependency-cleanup timing.
+                    with invocation_envelope(bound_settings, bound_context):
+                        try:
+                            async for output in func(**(request_dict or {})):
+                                yield (
+                                    InvokeResponse(
+                                        usage=usage,
+                                        message_channels=message_channels,
+                                        filedata_meta=filedata_meta_model.model_validate(
+                                            filedata_meta.model_dump()
+                                        ),
+                                        status_code=status.HTTP_200_OK,
+                                        output=output,
+                                        file_data=request_dict.get("file_data", None),
+                                    ).model_dump_json()
+                                    + "\n"
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Failure streaming response: {_safe_str(e)}", exc_info=True
+                            )
                             yield (
                                 InvokeResponse(
                                     usage=usage,
@@ -237,27 +305,13 @@ def _wrap_in_fastapi(
                                     filedata_meta=filedata_meta_model.model_validate(
                                         filedata_meta.model_dump()
                                     ),
-                                    status_code=status.HTTP_200_OK,
-                                    output=output,
-                                    file_data=request_dict.get("file_data", None),
+                                    status_code=status_code_of(e),
+                                    status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
+                                    failure_category=failure_category_of(e),
+                                    plugin_error=plugin_error_of(e),
                                 ).model_dump_json()
                                 + "\n"
                             )
-                    except Exception as e:
-                        logger.error(f"Failure streaming response: {_safe_str(e)}", exc_info=True)
-                        yield (
-                            InvokeResponse(
-                                usage=usage,
-                                message_channels=message_channels,
-                                filedata_meta=filedata_meta_model.model_validate(
-                                    filedata_meta.model_dump()
-                                ),
-                                status_code=status_code_of(e),
-                                status_code_text=f"[{type(e).__name__}] {_safe_str(e)}",
-                                failure_category=failure_category_of(e),
-                            ).model_dump_json()
-                            + "\n"
-                        )
 
                 return StreamingResponse(_stream_response(), media_type="application/x-ndjson")
             else:
@@ -299,6 +353,7 @@ def _wrap_in_fastapi(
                 status_code=status_code_of(exc),
                 status_code_text=_safe_str(exc),
                 failure_category=failure_category_of(exc),
+                plugin_error=plugin_error_of(exc),
                 file_data=request_dict.get("file_data", None),
             )
         except Exception as invoke_error:
@@ -376,6 +431,7 @@ def _wrap_in_fastapi(
         status_code: int
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
+        plugin_error: Optional[PluginErrorMetadata] = None
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
@@ -391,6 +447,7 @@ def _wrap_in_fastapi(
                 status_code=fn_response.status_code,
                 status_code_text=fn_response.status_code_text,
                 failure_category=fn_response.failure_category,
+                plugin_error=fn_response.plugin_error,
                 usage=fn_response.usage,
             )
         else:
@@ -406,6 +463,13 @@ def _wrap_in_fastapi(
     except TypeError as e:
         raise TypeError(f"failed to validate function schema: {e}") from e
 
+    # Registered last so add_metadata_route replaces any /metadata the plugin registered itself.
+    add_metadata_route(
+        fastapi_app,
+        identifier=plugin_id,
+        invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
+    )
+
     FastAPIInstrumentor.instrument_app(
         fastapi_app, tracer_provider=get_trace_provider(), meter_provider=get_metric_provider()
     )
@@ -420,6 +484,7 @@ def generate_fast_api(
     id_method: Optional[str] = None,
     precheck_str: Optional[str] = None,
     precheck_method: Optional[str] = None,
+    invoke_with_sealed_dag_node_settings_v2: bool = False,
 ) -> FastAPI:
     instance = import_from_string(app)
     func = get_func(instance, method_name)
@@ -438,4 +503,9 @@ def generate_fast_api(
     elif precheck_method:
         precheck_func = get_func(instance, precheck_method)
 
-    return wrap_in_fastapi(func=func, plugin_id=plugin_id, precheck_func=precheck_func)
+    return wrap_in_fastapi(
+        func=func,
+        plugin_id=plugin_id,
+        precheck_func=precheck_func,
+        invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
+    )
