@@ -1,3 +1,14 @@
+## 0.1.1
+
+* **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared
+  `retryable = false` for the whole legacy `UserError` family, `RateLimitError` included, so a 429
+  a consumer reads off the declared field fails the record on the first throttle instead of backing
+  off, and charges it to the customer. `RateLimitError` now serializes
+  `error_type = "dependency"`, `error_reason = "rate_limited"`, `audience = "user"` and
+  `retryable = true`, mirroring the `utic_plugin_base` class of the same name. Every other member of
+  the family stays terminal: terminal is the safe default, so a transient condition declares itself.
+  The `plugins_controller` reads retryability off the HTTP status band today, so its behaviour is
+  unchanged either way.
 ## 0.1.0
 
 * **This package now owns the `/invoke` transport for the reserved fields.**

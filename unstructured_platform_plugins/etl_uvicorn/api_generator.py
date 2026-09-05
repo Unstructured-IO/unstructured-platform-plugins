@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
-from unstructured_ingest.error import UnstructuredIngestError, UserError
+from unstructured_ingest.error import RateLimitError, UnstructuredIngestError, UserError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -116,14 +116,24 @@ def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
 
     The ratified ErrorAudience vocabulary owns the wire spelling. A non-user failure remains
     unclassified: orchestrators must not infer actionability from its HTTP status.
+
+    Terminal is the safe default, so a transient condition has to declare itself: a provider
+    rate limit is the one member of this family that clears on its own, and it mirrors the
+    utic_plugin_base ``RateLimitError`` declaration (platform-libs #889) field for field.
+    Retryability is orthogonal to audience -- a throttled request is still the caller's
+    quota, so the audience stays ``user``.
     """
     if not isinstance(error, UserError):
         return None
+    if isinstance(error, RateLimitError):
+        error_type, default_reason, retryable = "dependency", "rate_limited", True
+    else:
+        error_type, default_reason, retryable = "configuration", "invalid_input", False
     return PluginErrorMetadata(
-        error_type="configuration",
-        error_reason=failure_category_of(error) or "invalid_input",
+        error_type=error_type,
+        error_reason=failure_category_of(error) or default_reason,
         audience=ErrorAudience.USER,
-        retryable=False,
+        retryable=retryable,
     )
 
 

@@ -12,6 +12,8 @@ from unstructured_ingest.data_types.file_data import (
     FileData,
     SourceIdentifiers,
 )
+from unstructured_ingest.error import RateLimitError as IngestRateLimitError
+from unstructured_ingest.error import UserAuthError as IngestUserAuthError
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,
@@ -916,3 +918,58 @@ def test_precheck_func_accepts_string_annotations():
     )
 
     assert client.get("/precheck").json()["status_code"] == 200
+
+
+def test_rate_limit_error_reaches_the_wire_as_retryable():
+    """A provider 429 is transient: terminalizing it fails a record that backing off recovers.
+
+    Mirrors the utic_plugin_base RateLimitError declaration (platform-libs #889), which
+    carries error_type="dependency", error_reason="rate_limited" and retryable=True.
+    """
+
+    def _rate_limited() -> None:
+        raise IngestRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["status_code"] == 429
+    plugin_error = body["plugin_error"]
+    assert plugin_error["audience"] == "user"
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_non_rate_limited_user_errors_stay_terminal():
+    """Terminal is the safe default: only the transient condition declares itself."""
+
+    def _bad_credentials() -> None:
+        raise IngestUserAuthError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_bad_credentials, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is False
+    assert plugin_error["error_type"] == "configuration"
+    assert plugin_error["error_reason"] == "invalid_input"
+
+
+def test_precheck_rate_limit_error_is_retryable():
+    """The precheck envelope carries the same retryability as invoke."""
+
+    def _rate_limited_precheck() -> None:
+        raise IngestRateLimitError("provider throttled the precheck")
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_rate_limited_precheck
+        )
+    )
+
+    plugin_error = client.get("/precheck").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_reason"] == "rate_limited"
