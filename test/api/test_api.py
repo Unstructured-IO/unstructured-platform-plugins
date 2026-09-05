@@ -14,6 +14,7 @@ from unstructured_ingest.data_types.file_data import (
 )
 from unstructured_ingest.error import RateLimitError as IngestRateLimitError
 from unstructured_ingest.error import UserAuthError as IngestUserAuthError
+from unstructured_ingest.error import UserError as IngestUserError
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,
@@ -920,6 +921,12 @@ def test_precheck_func_accepts_string_annotations():
     assert client.get("/precheck").json()["status_code"] == 200
 
 
+class _CategorizedUserError(IngestUserError):
+    """A user error that also carries a preflight failure_category, as partitioner's do."""
+
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
 def test_rate_limit_error_reaches_the_wire_as_retryable():
     """A provider 429 is transient: terminalizing it fails a record that backing off recovers.
 
@@ -973,3 +980,48 @@ def test_precheck_rate_limit_error_is_retryable():
 
     assert plugin_error["retryable"] is True
     assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_error_reason_is_lower_snake_case_on_the_wire():
+    """`error.reason` is lower_snake_case. `failure_category` is a separate
+    SCREAMING_SNAKE vocabulary and keeps its own top-level field."""
+
+    def _categorized() -> None:
+        raise _CategorizedUserError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_categorized, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_error_reason_normalizes_a_non_snake_failure_category():
+    """failure_category is arbitrary plugin-supplied text, so lowercasing alone does not
+    produce a lower_snake_case token."""
+
+    class _SpacedCategoryError(IngestUserError):
+        failure_category = "Auth Permission-Denied "
+
+    def _spaced() -> None:
+        raise _SpacedCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_spaced, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "Auth Permission-Denied "
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_unusable_failure_category_falls_back_to_the_default_reason():
+    class _PunctuationCategoryError(IngestUserError):
+        failure_category = "///"
+
+    def _punctuation() -> None:
+        raise _PunctuationCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_punctuation, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["plugin_error"]["error_reason"] == "invalid_input"

@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import json
 import logging
+import re
 from typing import Any, Callable, Optional, Union, get_origin
 
 from fastapi import FastAPI, HTTPException, status
@@ -111,6 +112,24 @@ def failure_category_of(error: BaseException) -> Optional[str]:
     return category if isinstance(category, str) else None
 
 
+def _as_error_reason(category: Optional[str]) -> Optional[str]:
+    """Render a failure_category as an ``error.reason`` token, or None when it cannot be.
+
+    ``failure_category`` and ``error.reason`` are two vocabularies, not one: the preflight
+    categories are SCREAMING_SNAKE (``AUTH_PERMISSION_DENIED``) while ``error.reason`` is
+    specified lower_snake_case. ``failure_category`` still rides its own top-level response
+    field verbatim, so nothing is lost by normalizing the copy that lands here.
+
+    The category is plugin-supplied free text rather than a closed enum, so lowercasing
+    alone would not produce a snake_case token; punctuation and whitespace collapse to
+    single underscores and a category with no usable characters yields None.
+    """
+    if category is None:
+        return None
+    reason = re.sub(r"[^a-z0-9]+", "_", category.lower()).strip("_")
+    return reason or None
+
+
 def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
     """Map the legacy UserError family onto the canonical plugin-error envelope.
 
@@ -131,7 +150,7 @@ def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
         error_type, default_reason, retryable = "configuration", "invalid_input", False
     return PluginErrorMetadata(
         error_type=error_type,
-        error_reason=failure_category_of(error) or default_reason,
+        error_reason=_as_error_reason(failure_category_of(error)) or default_reason,
         audience=ErrorAudience.USER,
         retryable=retryable,
     )

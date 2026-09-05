@@ -9,6 +9,11 @@
   the family stays terminal: terminal is the safe default, so a transient condition declares itself.
   The `plugins_controller` reads retryability off the HTTP status band today, so its behaviour is
   unchanged either way.
+* **`plugin_error.error_reason` is lower_snake_case again.** It was assigned straight from
+  `failure_category`, which is a separate SCREAMING_SNAKE vocabulary (`AUTH_PERMISSION_DENIED`), so
+  a plugin that set one put the wrong spelling on a field specified lower_snake_case. The category
+  is now normalized for this field only and still rides the top-level `failure_category` verbatim.
+
 ## 0.1.0
 
 * **This package now owns the `/invoke` transport for the reserved fields.**
