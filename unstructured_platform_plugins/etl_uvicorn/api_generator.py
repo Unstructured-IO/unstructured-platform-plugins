@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import json
 import logging
+import re
 from typing import Any, Callable, Optional, Union, get_origin
 
 from fastapi import FastAPI, HTTPException, status
@@ -12,7 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from starlette.responses import RedirectResponse
 from typing_extensions import deprecated
 from unstructured_ingest.data_types.file_data import BatchFileData, FileData, file_data_from_dict
-from unstructured_ingest.error import UnstructuredIngestError, UserError
+from unstructured_ingest.error import RateLimitError, UnstructuredIngestError, UserError
 from uvicorn.config import LOG_LEVELS
 from uvicorn.importer import import_from_string
 
@@ -111,19 +112,52 @@ def failure_category_of(error: BaseException) -> Optional[str]:
     return category if isinstance(category, str) else None
 
 
+def _as_error_reason(category: Optional[str]) -> Optional[str]:
+    """Render a failure_category as an ``error.reason`` token, or None when it cannot be.
+
+    ``failure_category`` and ``error.reason`` are two vocabularies, not one: the preflight
+    categories are SCREAMING_SNAKE (``AUTH_PERMISSION_DENIED``) while ``error.reason`` is
+    specified lower_snake_case. ``failure_category`` still rides its own top-level response
+    field verbatim, so nothing is lost by normalizing the copy that lands here.
+
+    The category is plugin-supplied free text rather than a closed enum, so lowercasing
+    alone would not produce a snake_case token; punctuation and whitespace collapse to
+    single underscores and a category with no usable characters yields None.
+    """
+    if category is None:
+        return None
+    reason = re.sub(r"[^a-z0-9]+", "_", category.lower()).strip("_")
+    return reason or None
+
+
 def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
     """Map the legacy UserError family onto the canonical plugin-error envelope.
 
     The ratified ErrorAudience vocabulary owns the wire spelling. A non-user failure remains
     unclassified: orchestrators must not infer actionability from its HTTP status.
+
+    Terminal is the safe default, so a transient condition has to declare itself: a provider
+    rate limit is the one member of this family that clears on its own, and it mirrors the
+    utic_plugin_base ``RateLimitError`` declaration (platform-libs #889) field for field.
+    Retryability is orthogonal to audience -- a throttled request is still the caller's
+    quota, so the audience stays ``user``.
+
+    The class picks the DEFAULT reason; an explicit ``failure_category`` still wins, on this
+    branch as on every other. A plugin that declares a category has said something more
+    specific than the class did (a rate limit raised as ``PROVIDER_RATE_LIMITED``), and
+    dropping it here would discard the more precise of the two.
     """
     if not isinstance(error, UserError):
         return None
+    if isinstance(error, RateLimitError):
+        error_type, default_reason, retryable = "dependency", "rate_limited", True
+    else:
+        error_type, default_reason, retryable = "configuration", "invalid_input", False
     return PluginErrorMetadata(
-        error_type="configuration",
-        error_reason=failure_category_of(error) or "invalid_input",
+        error_type=error_type,
+        error_reason=_as_error_reason(failure_category_of(error)) or default_reason,
         audience=ErrorAudience.USER,
-        retryable=False,
+        retryable=retryable,
     )
 
 

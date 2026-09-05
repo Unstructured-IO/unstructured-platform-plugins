@@ -12,6 +12,9 @@ from unstructured_ingest.data_types.file_data import (
     FileData,
     SourceIdentifiers,
 )
+from unstructured_ingest.error import RateLimitError as IngestRateLimitError
+from unstructured_ingest.error import UserAuthError as IngestUserAuthError
+from unstructured_ingest.error import UserError as IngestUserError
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,
@@ -916,3 +919,132 @@ def test_precheck_func_accepts_string_annotations():
     )
 
     assert client.get("/precheck").json()["status_code"] == 200
+
+
+class _CategorizedUserError(IngestUserError):
+    """A user error that also carries a preflight failure_category, as partitioner's do."""
+
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
+def test_rate_limit_error_reaches_the_wire_as_retryable():
+    """A provider 429 is transient: terminalizing it fails a record that backing off recovers.
+
+    Mirrors the utic_plugin_base RateLimitError declaration (platform-libs #889), which
+    carries error_type="dependency", error_reason="rate_limited" and retryable=True.
+    """
+
+    def _rate_limited() -> None:
+        raise IngestRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["status_code"] == 429
+    plugin_error = body["plugin_error"]
+    assert plugin_error["audience"] == "user"
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_non_rate_limited_user_errors_stay_terminal():
+    """Terminal is the safe default: only the transient condition declares itself."""
+
+    def _bad_credentials() -> None:
+        raise IngestUserAuthError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_bad_credentials, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is False
+    assert plugin_error["error_type"] == "configuration"
+    assert plugin_error["error_reason"] == "invalid_input"
+
+
+def test_rate_limit_failure_category_overrides_the_default_reason():
+    """`rate_limited` is the class DEFAULT reason, not a fixed one.
+
+    A plugin that declares a `failure_category` on a rate limit has said something more
+    specific than the class did, so the category wins the reason -- the same precedence every
+    other member of the family gets. The retryability and typing still come from the class.
+    """
+
+    class _CategorizedRateLimitError(IngestRateLimitError):
+        failure_category = "PROVIDER_RATE_LIMITED"
+
+    def _rate_limited() -> None:
+        raise _CategorizedRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["error_reason"] == "provider_rate_limited"
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["retryable"] is True
+
+
+def test_precheck_rate_limit_error_is_retryable():
+    """The precheck envelope carries the same retryability as invoke."""
+
+    def _rate_limited_precheck() -> None:
+        raise IngestRateLimitError("provider throttled the precheck")
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_rate_limited_precheck
+        )
+    )
+
+    plugin_error = client.get("/precheck").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_error_reason_is_lower_snake_case_on_the_wire():
+    """`error.reason` is lower_snake_case. `failure_category` is a separate
+    SCREAMING_SNAKE vocabulary and keeps its own top-level field."""
+
+    def _categorized() -> None:
+        raise _CategorizedUserError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_categorized, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_error_reason_normalizes_a_non_snake_failure_category():
+    """failure_category is arbitrary plugin-supplied text, so lowercasing alone does not
+    produce a lower_snake_case token."""
+
+    class _SpacedCategoryError(IngestUserError):
+        failure_category = "Auth Permission-Denied "
+
+    def _spaced() -> None:
+        raise _SpacedCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_spaced, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "Auth Permission-Denied "
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_unusable_failure_category_falls_back_to_the_default_reason():
+    class _PunctuationCategoryError(IngestUserError):
+        failure_category = "///"
+
+    def _punctuation() -> None:
+        raise _PunctuationCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_punctuation, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["plugin_error"]["error_reason"] == "invalid_input"
