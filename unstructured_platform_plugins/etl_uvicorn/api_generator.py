@@ -141,6 +141,11 @@ def plugin_error_of(error: BaseException) -> Optional[PluginErrorMetadata]:
     utic_plugin_base ``RateLimitError`` declaration (platform-libs #889) field for field.
     Retryability is orthogonal to audience -- a throttled request is still the caller's
     quota, so the audience stays ``user``.
+
+    The class picks the DEFAULT reason; an explicit ``failure_category`` still wins, on this
+    branch as on every other. A plugin that declares a category has said something more
+    specific than the class did (a rate limit raised as ``PROVIDER_RATE_LIMITED``), and
+    dropping it here would discard the more precise of the two.
     """
     if not isinstance(error, UserError):
         return None

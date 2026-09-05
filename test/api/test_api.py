@@ -964,6 +964,29 @@ def test_non_rate_limited_user_errors_stay_terminal():
     assert plugin_error["error_reason"] == "invalid_input"
 
 
+def test_rate_limit_failure_category_overrides_the_default_reason():
+    """`rate_limited` is the class DEFAULT reason, not a fixed one.
+
+    A plugin that declares a `failure_category` on a rate limit has said something more
+    specific than the class did, so the category wins the reason -- the same precedence every
+    other member of the family gets. The retryability and typing still come from the class.
+    """
+
+    class _CategorizedRateLimitError(IngestRateLimitError):
+        failure_category = "PROVIDER_RATE_LIMITED"
+
+    def _rate_limited() -> None:
+        raise _CategorizedRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["error_reason"] == "provider_rate_limited"
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["retryable"] is True
+
+
 def test_precheck_rate_limit_error_is_retryable():
     """The precheck envelope carries the same retryability as invoke."""
 
