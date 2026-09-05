@@ -15,6 +15,10 @@
   `failure_category`, which is a separate SCREAMING_SNAKE vocabulary (`AUTH_PERMISSION_DENIED`), so
   a plugin that set one put the wrong spelling on a field specified lower_snake_case. The category
   is now normalized for this field only and still rides the top-level `failure_category` verbatim.
+  Compatibility: the verbatim spelling reached the wire only in 0.1.0, so a consumer written
+  against that release reads `error_reason` change spelling across this patch bump. Nothing is
+  lost, since the top-level `failure_category` is unchanged, but read that field rather than
+  parsing `error_reason` if you need the category verbatim.
 
 ## 0.1.0
 
