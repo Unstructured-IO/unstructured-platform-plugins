@@ -1,0 +1,27 @@
+CHANGELOG.md
+  s_9f5977ad7aaaca::t_b866576cf728c8 1-17
+test/api/test_api.py
+  s_9f5977ad7aaaca::t_3c27db5035b6ee 919-1096
+unstructured_platform_plugins/__version__.py
+  s_9f5977ad7aaaca::t_545dccc9ce18ed 1
+unstructured_platform_plugins/etl_uvicorn/api_generator.py
+  s_9f5977ad7aaaca::t_361c0d2f16389a 6,67-96,183-210,218-231,501,509-519,521-524,526-560,573-577,582
+unstructured_platform_plugins/invocation_settings.py
+  s_9f5977ad7aaaca::t_a009d7e6dd00ca 38,86-89,132,140-143,157-159,230-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "57c447651b2ec964948559920e82d85f2c576479",
+  "prompts": {},
+  "sessions": {
+    "s_9f5977ad7aaaca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d975be-9b1e-4926-a9d0-12aaeaf55fce",
+        "model": "unknown"
+      },
+      "human_author": "paulkarayan <pk@unstructured.io>"
+    }
+  }
+}
