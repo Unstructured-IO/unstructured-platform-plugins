@@ -1,0 +1,28 @@
+unstructured_platform_plugins/invocation_settings.py
+  s_9f5977ad7aaaca::t_a009d7e6dd00ca 38,86-89,132,140-143,157-159,230-231
+unstructured_platform_plugins/etl_uvicorn/api_generator.py
+  s_9f5977ad7aaaca::t_361c0d2f16389a 6,67-95,182-209,217-237,507,515-525,527-530,532-566,579-584,589
+unstructured_platform_plugins/__version__.py
+  s_9f5977ad7aaaca::t_545dccc9ce18ed 1
+CHANGELOG.md
+  s_9f5977ad7aaaca::t_b866576cf728c8 1-19
+test/api/test_api.py
+  s_9f5977ad7aaaca::t_3c27db5035b6ee 919-1092,1101,1104,1106,1108,1110,1112-1113,1119,1123
+  s_9f5977ad7aaaca::t_d8f2f2aaa33b06 1093-1100,1102-1103,1105,1107,1109,1111,1114-1118,1120-1122,1124-1125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "6511f8d7a287134eccb18f9332a9ca657ff9affd",
+  "prompts": {},
+  "sessions": {
+    "s_9f5977ad7aaaca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d975be-9b1e-4926-a9d0-12aaeaf55fce",
+        "model": "unknown"
+      },
+      "human_author": "paulkarayan <pk@unstructured.io>"
+    }
+  }
+}
