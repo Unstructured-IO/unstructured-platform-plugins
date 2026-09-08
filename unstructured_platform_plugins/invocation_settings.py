@@ -35,7 +35,7 @@ import logging
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Optional, TypeVar
@@ -83,6 +83,10 @@ T = TypeVar("T")
 
 _METADATA_PATH = "/metadata"
 _INVOKE_PATH = "/invoke"
+_PRECHECK_PATH = "/precheck"
+# POST /precheck carries the same reserved envelope as POST /invoke: a plugin configured
+# per-invoke cannot be prechecked against settings a GET has nowhere to put.
+_ENVELOPE_PATHS = frozenset({_INVOKE_PATH, _PRECHECK_PATH})
 
 # A convenient opt-in ceiling for hosts that have verified it against their request distribution.
 # It is deliberately not the install default: batch invokes carry arrays of file_data payloads,
@@ -125,12 +129,17 @@ def add_metadata_route(
     app: FastAPI,
     identifier: Optional[str] = None,
     invoke_with_sealed_dag_node_settings_v2: bool = False,
+    extra_capabilities: Sequence[str] = (),
 ) -> None:
     """Register GET /metadata advertising the reserved /invoke fields this plugin accepts.
 
     `/metadata` is the plugin API spec's own discovery surface (`PluginMetadataOutput`): capability
     flags are strings in its `capabilities` list, which is where the controller looks before
     forwarding the reserved fields — no controller-private probe route.
+
+    `extra_capabilities` are appended in order after the transport capabilities, de-duplicated,
+    for facts a caller discovers here rather than by probing -- whether the plugin implements a
+    precheck at all, and whether that precheck has to be handed the node's settings.
 
     `invocation_settings` and `invocation_context` are transport capabilities: installing the
     dependency makes the host receive, resolve, and bind those fields. The sealed-settings
@@ -145,6 +154,9 @@ def add_metadata_route(
     capabilities = [RESERVED_ENVELOPE_KEY, RESERVED_CONTEXT_KEY]
     if invoke_with_sealed_dag_node_settings_v2:
         capabilities.append(INVOKE_WITH_SEALED_DAG_NODE_SETTINGS_V2_CAPABILITY)
+    # Whether this plugin checks anything, and how it must be asked, is discovery: a caller
+    # that reads it does not have to infer "no check" from a 200 that says nothing.
+    capabilities.extend(c for c in extra_capabilities if c not in capabilities)
     app.state.plugin_metadata_payload = {
         "api_version": "3",
         "identifier": identifier,
@@ -215,8 +227,8 @@ async def bind_invocation_envelope(request: Request) -> AsyncIterator[None]:
     object, since such a body cannot carry the envelope a native pod requires.
     """
     # ASGI `path` includes any deployment root_path; get_route_path strips it, which is how the
-    # router itself matches, so binding fires exactly when the /invoke route does.
-    if request.method != "POST" or get_route_path(request.scope) != _INVOKE_PATH:
+    # router itself matches, so binding fires exactly when an envelope-bearing route does.
+    if request.method != "POST" or get_route_path(request.scope) not in _ENVELOPE_PATHS:
         yield
         return
 

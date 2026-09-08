@@ -916,3 +916,210 @@ def test_precheck_func_accepts_string_annotations():
     )
 
     assert client.get("/precheck").json()["status_code"] == 200
+
+
+def test_absent_precheck_is_distinguishable_from_a_real_pass():
+    """A plugin that checks nothing must not answer identically to one that checked.
+
+    OBSERVED on pk-preflight-off 2026-09-08: the `embed` node, which passes no
+    `precheck_func`, answered `GET /precheck` with
+    `{"usage":[],"status_code":200,"status_code_text":null,"failure_category":null,
+    "plugin_error":null}` -- byte-identical to the S3 connector's answer after a real
+    remote probe. The preflight controller recorded both as PASSED.
+    """
+    checked = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    ).get("/precheck")
+    unchecked = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin")).get(
+        "/precheck"
+    )
+
+    assert checked.status_code == 200
+    assert unchecked.status_code == 200
+    assert unchecked.json() != checked.json(), (
+        "a plugin with no precheck_func answers /precheck identically to one that "
+        "ran a real check, so a caller cannot tell 'checked and fine' from 'never checked'"
+    )
+    assert checked.json()["precheck_outcome"] == "checked"
+    assert unchecked.json()["precheck_outcome"] == "not_implemented"
+
+
+def test_absent_precheck_still_answers_a_proceeding_status_code():
+    """The distinction must not newly fail jobs that run fine today.
+
+    `embed`, `prompter`, `multimedia`, `nim`, `stager`, `downloader` and `cleaner` all pass
+    no `precheck_func`. A controller that has not learned `precheck_outcome` reads
+    `status_code` and must keep proceeding, so the numeric verdict stays 200.
+    """
+    resp = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin")).get("/precheck")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 200
+    assert body["failure_category"] is None
+    assert body["plugin_error"] is None
+    assert "nothing was verified" in body["status_code_text"]
+
+
+def test_precheck_func_may_consume_invocation_settings():
+    """A precheck that needs the node's settings must be registrable.
+
+    OBSERVED: `embed` receives its settings with the invoke payload
+    (`invoke_with_sealed_dag_node_settings_v2=True`) and has working
+    `run_precheck()` logic, but cannot be wired to the route because
+    `check_precheck_func` permits only a `usage` list parameter.
+    """
+    ran = []
+
+    def _settings_precheck(invocation_settings: Optional[dict]) -> None:
+        ran.append(invocation_settings)
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_settings_precheck)
+    )
+
+    body = client.get("/precheck").json()
+
+    # A GET carries no settings, so the check that needs them is reported as not run --
+    # never guessed at against whatever the pod booted with.
+    assert body["precheck_outcome"] == "settings_required"
+    assert body["status_code"] == 200
+    assert ran == []
+    assert (
+        "precheck_with_sealed_dag_node_settings_v2"
+        in client.get("/metadata").json()["capabilities"]
+    )
+
+
+def test_precheck_can_be_called_with_sealed_node_settings():
+    """The caller must be able to hand the node's settings to the precheck.
+
+    A GET carries no body, so today there is no way to precheck a plugin whose
+    configuration arrives per-invoke.
+    """
+    seen: dict = {}
+
+    def _settings_precheck(invocation_settings: Optional[dict]) -> None:
+        seen["settings"] = invocation_settings
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_settings_precheck)
+    )
+
+    resp = client.post("/precheck", json={"invocation_settings": {"model": "m"}})
+
+    assert resp.status_code == 200
+    assert resp.json()["status_code"] == 200
+    assert seen["settings"] == {"model": "m"}
+
+
+def test_precheck_route_accepts_a_settings_bearing_post():
+    """The transport half of the same gap: a GET has nowhere to carry the settings."""
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    resp = client.post("/precheck", json={"invocation_settings": {"model": "m"}})
+
+    assert resp.status_code == 200
+
+
+def test_a_plugin_that_needs_no_settings_advertises_no_new_capability():
+    """The /metadata list must not move for a plugin whose precheck did not change.
+
+    Several plugins assert their capability list exactly. Only the settings-consuming case
+    earns a new string, because only it changes how a caller must ask.
+    """
+    unchecked = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin"))
+    checked = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    baseline = ["invocation_settings", "invocation_context"]
+    assert unchecked.get("/metadata").json()["capabilities"] == baseline
+    assert checked.get("/metadata").json()["capabilities"] == baseline
+
+
+def test_precheck_may_take_both_usage_and_invocation_settings():
+    seen: dict = {}
+
+    def _both(usage: list, invocation_settings: Optional[dict]) -> None:
+        seen["usage"] = usage
+        seen["settings"] = invocation_settings
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_both)
+    )
+
+    body = client.post("/precheck", json={"invocation_settings": {"model": "m"}}).json()
+
+    assert body["precheck_outcome"] == "checked"
+    assert seen["settings"] == {"model": "m"}
+    assert seen["usage"] == []
+
+
+def test_precheck_failure_against_supplied_settings_is_reported():
+    def _settings_precheck(invocation_settings: Optional[dict]) -> None:
+        raise _PrecheckFailure("credential rejected")
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_settings_precheck)
+    )
+
+    body = client.post("/precheck", json={"invocation_settings": {"api_key": "wrong"}}).json()
+
+    assert body["precheck_outcome"] == "checked"
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+
+
+def test_precheck_that_needs_no_settings_still_runs_on_a_post():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    body = client.post("/precheck").json()
+
+    assert body["precheck_outcome"] == "checked"
+    assert body["status_code"] == 200
+
+
+def test_precheck_func_with_an_unknown_parameter_is_still_rejected():
+    def _bad_precheck(bucket: str) -> None:
+        return None
+
+    with pytest.raises(EtlApiException):
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_bad_precheck)
+
+
+def test_precheck_func_with_var_args_is_still_accepted():
+    """A precheck that declares only *args/**kwargs was accepted before and must stay accepted.
+
+    The old check looked at the parameter list only when it held exactly one entry, so
+    `(*args, **kwargs)` -- what `unittest.mock.patch.object` substitutes for a method, and what
+    a decorator that does not preserve a signature leaves behind -- passed vacuously.
+    """
+
+    def _var_args_precheck(*args, **kwargs) -> None:
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_var_args_precheck)
+    )
+
+    body = client.get("/precheck").json()
+
+    assert body["status_code"] == 200
+    assert body["precheck_outcome"] == "checked"
+
+
+def test_precheck_func_from_a_mock_is_still_accepted():
+    from unittest.mock import MagicMock
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=MagicMock(return_value=None)
+        )
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200

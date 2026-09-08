@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import json
 import logging
+from enum import Enum
 from typing import Any, Callable, Optional, Union, get_origin
 
 from fastapi import FastAPI, HTTPException, status
@@ -61,6 +62,35 @@ class PluginErrorMetadata(BaseModel):
     dependency: Optional[str] = None
     audience: Optional[ErrorAudience] = None
     retryable: bool = False
+
+
+class PrecheckOutcome(str, Enum):
+    """Whether a precheck response is the result of an actual check.
+
+    The `status_code` on a precheck response answers "did the check pass". It cannot also
+    answer "was there a check", and a plugin with no precheck function used to borrow a 200
+    to say nothing at all. These are independent questions and get independent fields.
+
+    A consumer that has not learned this field sees the same `status_code` it always saw, so
+    an unchecked node still proceeds rather than newly failing; a consumer that has learned it
+    can separate a vacuous pass from a real one without reading pod logs.
+    """
+
+    CHECKED = "checked"
+    """A precheck function ran. `status_code` carries its verdict."""
+
+    NOT_IMPLEMENTED = "not_implemented"
+    """This plugin declares no precheck function. Nothing was verified."""
+
+    SETTINGS_REQUIRED = "settings_required"
+    """A precheck exists but needs the node's settings, and this call carried none."""
+
+
+NO_PRECHECK_TEXT = "no precheck implemented by this plugin; nothing was verified"
+PRECHECK_WITH_SEALED_DAG_NODE_SETTINGS_V2_CAPABILITY = "precheck_with_sealed_dag_node_settings_v2"
+SETTINGS_REQUIRED_TEXT = (
+    "precheck requires the node's invocation settings; call POST /precheck with them"
+)
 
 
 def log_func_and_body(func: Callable, body: Optional[str] = None) -> None:
@@ -149,21 +179,63 @@ async def invoke_func(func: Callable, kwargs: Optional[dict[str, Any]] = None) -
     return await asyncio.to_thread(func, **kwargs)
 
 
+INVOCATION_SETTINGS_PARAM = "invocation_settings"
+
+
+def _is_list_annotation(annotation: Any, empty: Any) -> bool:
+    return annotation is empty or annotation is list or get_origin(annotation) is list
+
+
+def _is_mapping_annotation(annotation: Any, empty: Any) -> bool:
+    """Accept the shapes a resolved settings mapping can legally be declared as.
+
+    `current_invocation_settings()` returns `dict` or None, so `dict`, `dict[...]`,
+    `Optional[dict]` and an unannotated parameter all describe it truthfully.
+    """
+    if annotation is empty or annotation is dict or get_origin(annotation) is dict:
+        return True
+    if get_origin(annotation) is Union:
+        return all(
+            arg is type(None) or arg is dict or get_origin(arg) is dict
+            for arg in getattr(annotation, "__args__", ())
+        )
+    return False
+
+
+def precheck_consumes_settings(precheck_func: Callable) -> bool:
+    """Whether this precheck declares the node's invocation settings as an input."""
+    return INVOCATION_SETTINGS_PARAM in inspect.signature(precheck_func).parameters
+
+
 def check_precheck_func(precheck_func: Callable):
     try:
         # eval_str resolves postponed/string annotations ('list', 'None')
         sig = inspect.signature(precheck_func, eval_str=True)
     except (NameError, TypeError):
         sig = inspect.signature(precheck_func)
-    inputs = list(sig.parameters.values())
     outputs = sig.return_annotation
-    if len(inputs) == 1:
-        i = inputs[0]
-        annotation_is_list = (
-            i.annotation is sig.empty or i.annotation is list or get_origin(i.annotation) is list
+    # `usage` is the original input. `invocation_settings` is the second, and it exists because
+    # a plugin configured per-invoke (embed: sealed v2 settings on the /invoke body) has nothing
+    # to check without it -- its embedder, model and credentials are all in that document.
+    for name, parameter in sig.parameters.items():
+        # *args / **kwargs name nothing the wrapper could bind, and the old check -- which
+        # inspected the parameter list only when it held exactly one entry -- let them through.
+        # `unittest.mock.patch.object` substitutes exactly that signature for a method, and so
+        # does any decorator that does not preserve one, so rejecting them breaks callers that
+        # work today.
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+            continue
+        if name == "usage" and _is_list_annotation(parameter.annotation, sig.empty):
+            continue
+        if name == INVOCATION_SETTINGS_PARAM and _is_mapping_annotation(
+            parameter.annotation, sig.empty
+        ):
+            continue
+        raise ValueError(
+            "the only inputs available for precheck are usage, which must be a list, and "
+            f"{INVOCATION_SETTINGS_PARAM}, which must be a mapping; "
+            f"found: {name}: {parameter.annotation}"
         )
-        if i.name != "usage" or not annotation_is_list:
-            raise ValueError("the only input available for precheck is usage which must be a list")
     if outputs not in [None, sig.empty]:
         raise ValueError(f"no output should exist for precheck function, found: {outputs}")
 
@@ -432,6 +504,7 @@ def _wrap_in_fastapi(
         status_code_text: Optional[str] = None
         failure_category: Optional[str] = None
         plugin_error: Optional[PluginErrorMetadata] = None
+        precheck_outcome: PrecheckOutcome = PrecheckOutcome.CHECKED
 
     @fastapi_app.get("/schema")
     async def get_schema() -> SchemaOutputResponse:
@@ -439,19 +512,58 @@ def _wrap_in_fastapi(
         resp = SchemaOutputResponse(inputs=schema["inputs"], outputs=schema["outputs"])
         return resp
 
+    needs_settings = precheck_func is not None and precheck_consumes_settings(precheck_func)
+
+    async def _precheck_response(settings_supplied: bool) -> InvokePrecheckResponse:
+        if precheck_func is None:
+            # A plugin that declares no precheck answers, and must say that it checked
+            # nothing. Reporting a bare success here made "checked and fine" and "never
+            # checked" byte-identical to the preflight controller, which recorded both as
+            # PASSED. The HTTP status and the body's `status_code` stay 200 deliberately:
+            # a caller that has not learned this field must keep proceeding, because
+            # turning every precheck-less plugin (embed, prompter, multimedia, nim,
+            # stager, downloader, cleaner) into a failure would reject jobs that run fine.
+            return InvokePrecheckResponse(
+                status_code=status.HTTP_200_OK,
+                status_code_text=NO_PRECHECK_TEXT,
+                precheck_outcome=PrecheckOutcome.NOT_IMPLEMENTED,
+                usage=[],
+            )
+        if needs_settings and not settings_supplied:
+            # Declaring the parameter is the plugin saying its check is meaningless without
+            # the node's settings. Running it against whatever the pod booted with would
+            # answer for a configuration nobody asked about -- and on a pod that has no
+            # boot-time configuration at all it would report a FAILED that rejects a job
+            # which would have run. Report that nothing was checked instead.
+            return InvokePrecheckResponse(
+                status_code=status.HTTP_200_OK,
+                status_code_text=SETTINGS_REQUIRED_TEXT,
+                precheck_outcome=PrecheckOutcome.SETTINGS_REQUIRED,
+                usage=[],
+            )
+        kwargs = (
+            {INVOCATION_SETTINGS_PARAM: current_invocation_settings()} if needs_settings else None
+        )
+        fn_response = await wrap_fn(func=precheck_func, kwargs=kwargs)
+        return InvokePrecheckResponse(
+            status_code=fn_response.status_code,
+            status_code_text=fn_response.status_code_text,
+            failure_category=fn_response.failure_category,
+            plugin_error=fn_response.plugin_error,
+            usage=fn_response.usage,
+            precheck_outcome=PrecheckOutcome.CHECKED,
+        )
+
     @fastapi_app.get("/precheck")
     async def run_precheck() -> InvokePrecheckResponse:
-        if precheck_func:
-            fn_response = await wrap_fn(func=precheck_func)
-            return InvokePrecheckResponse(
-                status_code=fn_response.status_code,
-                status_code_text=fn_response.status_code_text,
-                failure_category=fn_response.failure_category,
-                plugin_error=fn_response.plugin_error,
-                usage=fn_response.usage,
-            )
-        else:
-            return InvokePrecheckResponse(status_code=status.HTTP_200_OK, usage=[])
+        return await _precheck_response(settings_supplied=False)
+
+    @fastapi_app.post("/precheck")
+    async def run_precheck_with_settings() -> InvokePrecheckResponse:
+        # The reserved fields are read off the body by the router-level dependency, exactly as
+        # they are for /invoke, so this handler declares no body of its own and a caller that
+        # sends only the envelope is not fighting a generated input model.
+        return await _precheck_response(settings_supplied=current_invocation_settings() is not None)
 
     @fastapi_app.get("/id")
     async def get_id() -> str:
@@ -464,10 +576,17 @@ def _wrap_in_fastapi(
         raise TypeError(f"failed to validate function schema: {e}") from e
 
     # Registered last so add_metadata_route replaces any /metadata the plugin registered itself.
+    # Only the settings-consuming case is advertised. "this plugin has a precheck at all" is
+    # already on the response as `precheck_outcome`, and adding a second capability string for
+    # it would change the /metadata list of every plugin that already has a precheck.
+    precheck_capabilities = (
+        [PRECHECK_WITH_SEALED_DAG_NODE_SETTINGS_V2_CAPABILITY] if needs_settings else []
+    )
     add_metadata_route(
         fastapi_app,
         identifier=plugin_id,
         invoke_with_sealed_dag_node_settings_v2=invoke_with_sealed_dag_node_settings_v2,
+        extra_capabilities=precheck_capabilities,
     )
 
     FastAPIInstrumentor.instrument_app(

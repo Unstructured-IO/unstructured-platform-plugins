@@ -1,3 +1,22 @@
+## 0.2.0
+
+* **A precheck response now says whether anything was checked.** `InvokePrecheckResponse`
+  carries `precheck_outcome`: `checked` when a precheck function ran, `not_implemented` when the
+  plugin declares none, `settings_required` when the check needs the node's settings and the call
+  carried none. A plugin with no `precheck_func` used to answer a bare 200, byte-identical to a
+  connector that had just run a real remote probe, so a preflight caller recorded both as passed.
+  The HTTP status and the body's `status_code` are unchanged at 200 in every one of those cases:
+  a caller that has not learned the field keeps proceeding exactly as before.
+* **A precheck may consume the node's invocation settings.** `check_precheck_func` now accepts an
+  `invocation_settings` parameter alongside `usage`, and `POST /precheck` binds the same reserved
+  envelope `POST /invoke` does, so a plugin configured per-invoke can be checked against the
+  settings it will actually run with. Declaring the parameter means the check requires them: a
+  `GET /precheck` reports `settings_required` rather than running the check against whatever the
+  pod booted with. Such a plugin advertises `precheck_with_sealed_dag_node_settings_v2` on
+  `/metadata`, so a caller learns it must POST without probing. No other capability string is
+  added: whether a plugin has a precheck at all is already on the response, and a second string
+  would move the `/metadata` list of every plugin that already has one.
+
 ## 0.1.0
 
 * **This package now owns the `/invoke` transport for the reserved fields.**
