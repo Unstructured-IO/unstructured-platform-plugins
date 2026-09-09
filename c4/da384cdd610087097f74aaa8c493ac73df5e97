@@ -1,0 +1,41 @@
+CHANGELOG.md
+  s_20ecf9f53d67ab::t_6bf1e84688db1d 1-11
+test/api/test_api.py
+  s_9f5977ad7aaaca::t_926099f84a1623 919-1014
+unstructured_platform_plugins/__version__.py
+  s_9f5977ad7aaaca::t_cb72e7185d8439 1
+unstructured_platform_plugins/etl_uvicorn/api_generator.py
+  s_52a22fb6c84bce::t_5d8cb5a3a82d12 6,67-87,457,467-471,473-476,478-486
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "c4da384cdd610087097f74aaa8c493ac73df5e97",
+  "prompts": {},
+  "sessions": {
+    "s_20ecf9f53d67ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ea94b7e-6c24-4d15-8414-7d846ec64be6",
+        "model": "claude-opus-5"
+      },
+      "human_author": "paulkarayan <pk@unstructured.io>"
+    },
+    "s_52a22fb6c84bce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0838c-c039-7211-9952-02ba6a39b8d8",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "paulkarayan <pk@unstructured.io>"
+    },
+    "s_9f5977ad7aaaca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d975be-9b1e-4926-a9d0-12aaeaf55fce",
+        "model": "claude-opus-5"
+      },
+      "human_author": "paulkarayan <pk@unstructured.io>"
+    }
+  }
+}
