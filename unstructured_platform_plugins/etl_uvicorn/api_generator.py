@@ -126,6 +126,8 @@ def _as_error_reason(category: Optional[str]) -> Optional[str]:
     """
     if category is None:
         return None
+    # -- str.lower, not category.lower: the isinstance check upstream admits str SUBCLASSES,
+    # -- and this renders an error response, where raising is the one thing it must not do --
     reason = re.sub(r"[^a-z0-9]+", "_", str.lower(category)).strip("_")
     return reason or None
 

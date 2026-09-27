@@ -921,6 +921,32 @@ def test_precheck_func_accepts_string_annotations():
     assert client.get("/precheck").json()["status_code"] == 200
 
 
+def test_invoke_survives_a_failure_category_whose_lower_raises():
+    """`isinstance(category, str)` admits a str SUBCLASS, so its `lower` is plugin code.
+
+    The whole point of this path is rendering an error response; raising inside it would
+    turn a classified 4xx into a bare 500, which is the failure the sanitizing above exists
+    to prevent.
+    """
+
+    class _HostileCategory(str):
+        def lower(self) -> str:
+            raise RuntimeError("lower exploded")
+
+    class _HostileCategoryError(IngestUserError):
+        failure_category = _HostileCategory("AUTH_PERMISSION_DENIED")
+
+    def _raising_func() -> None:
+        raise _HostileCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["status_code"] != 500
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
 class _CategorizedUserError(IngestUserError):
     """A user error that also carries a preflight failure_category, as partitioner's do."""
 
