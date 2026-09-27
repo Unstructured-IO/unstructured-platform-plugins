@@ -126,7 +126,7 @@ def _as_error_reason(category: Optional[str]) -> Optional[str]:
     """
     if category is None:
         return None
-    reason = re.sub(r"[^a-z0-9]+", "_", category.lower()).strip("_")
+    reason = re.sub(r"[^a-z0-9]+", "_", str.lower(category)).strip("_")
     return reason or None
 
 
