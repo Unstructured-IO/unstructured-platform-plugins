@@ -1,3 +1,25 @@
+## 0.1.1
+
+* **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared
+  `retryable = false` for the whole legacy `UserError` family, `RateLimitError` included, so a 429
+  a consumer reads off the declared field fails the record on the first throttle instead of backing
+  off, and charges it to the customer. `RateLimitError` now serializes
+  `error_type = "dependency"`, `audience = "user"`, `retryable = true` and an `error_reason` that
+  defaults to `rate_limited`, mirroring the `utic_plugin_base` class of the same name. An explicit
+  `failure_category` still overrides that default reason, as it does for the rest of the family.
+  Every other member of
+  the family stays terminal: terminal is the safe default, so a transient condition declares itself.
+  The `plugins_controller` reads retryability off the HTTP status band today, so its behaviour is
+  unchanged either way.
+* **`plugin_error.error_reason` is lower_snake_case again.** It was assigned straight from
+  `failure_category`, which is a separate SCREAMING_SNAKE vocabulary (`AUTH_PERMISSION_DENIED`), so
+  a plugin that set one put the wrong spelling on a field specified lower_snake_case. The category
+  is now normalized for this field only and still rides the top-level `failure_category` verbatim.
+  Compatibility: the verbatim spelling reached the wire only in 0.1.0, so a consumer written
+  against that release reads `error_reason` change spelling across this patch bump. Nothing is
+  lost, since the top-level `failure_category` is unchanged, but read that field rather than
+  parsing `error_reason` if you need the category verbatim.
+
 ## 0.1.0
 
 * **This package now owns the `/invoke` transport for the reserved fields.**
