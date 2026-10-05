@@ -1,5 +1,7 @@
+import logging
 from pathlib import Path
 from typing import Any, Optional, Union
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,13 +12,25 @@ from unstructured_ingest.data_types.file_data import (
     FileData,
     SourceIdentifiers,
 )
+from unstructured_ingest.error import RateLimitError as IngestRateLimitError
+from unstructured_ingest.error import UserAuthError as IngestUserAuthError
+from unstructured_ingest.error import UserError as IngestUserError
 
 from unstructured_platform_plugins.etl_uvicorn.api_generator import (
     EtlApiException,
     UsageData,
     wrap_in_fastapi,
 )
+from unstructured_platform_plugins.generated.error_audience_v1 import ErrorAudience
 from unstructured_platform_plugins.schema.filedata_meta import FileDataMeta
+
+
+class PluginErrorMetadata(BaseModel):
+    error_type: str
+    error_reason: str
+    dependency: Optional[str] = None
+    audience: Optional[ErrorAudience] = None
+    retryable: bool = False
 
 
 class InvokeResponse(BaseModel):
@@ -24,6 +38,7 @@ class InvokeResponse(BaseModel):
     status_code: int
     filedata_meta: FileDataMeta
     status_code_text: Optional[str] = None
+    plugin_error: Optional[PluginErrorMetadata] = None
     output: Optional[Any] = None
     file_data: Optional[Union[FileData, BatchFileData]] = None
 
@@ -227,6 +242,67 @@ def test_http_exception_handling(file_data):
     # HTTPException should be handled by the HTTPException handler
     assert invoke_response.status_code == 404
     assert invoke_response.status_code_text == "Not found"
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_user_error_declares_canonical_user_audience(file_data):
+    """Only the UserError family declares a user-actionable plugin error."""
+    from test.assets.exception_status_code import function_raises_user_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.status_code >= 400
+    assert invoke_response.plugin_error is not None
+    assert invoke_response.plugin_error.audience is ErrorAudience.USER
+    assert invoke_response.plugin_error.error_type == "configuration"
+    assert invoke_response.plugin_error.error_reason == "invalid_input"
+    assert invoke_response.plugin_error.retryable is False
+
+
+@pytest.mark.parametrize(
+    "file_data", mock_file_data, ids=[type(fd).__name__ for fd in mock_file_data]
+)
+def test_non_user_failures_declare_no_plugin_error(file_data):
+    """Anything undeclared is not the customer's: an orchestrator must not infer customer fault
+    from the status code, which also carries transport semantics."""
+    from test.assets.exception_status_code import function_raises_provider_error as test_fn
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": file_data.model_dump()})
+    invoke_response = InvokeResponse.model_validate(resp.json())
+
+    assert invoke_response.plugin_error is None
+
+
+def test_streaming_user_error_declares_user_audience():
+    """The streaming error envelope carries the same audience as the non-streaming path."""
+    from test.assets.exception_status_code import (
+        async_gen_function_raises_user_error_mid_stream as test_fn,
+    )
+
+    client = TestClient(wrap_in_fastapi(func=test_fn, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": mock_file_data[0].model_dump()})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-ndjson"
+
+    import json
+
+    lines = resp.content.decode().strip().split("\n")
+    assert len(lines) == 2  # One yielded item, then the error envelope
+
+    assert InvokeResponse.model_validate(json.loads(lines[0])).plugin_error is None
+    error_response = InvokeResponse.model_validate(json.loads(lines[1]))
+    assert error_response.status_code >= 400
+    assert error_response.plugin_error is not None
+    assert error_response.plugin_error.audience is ErrorAudience.USER
 
 
 @pytest.mark.parametrize(
@@ -479,3 +555,531 @@ def test_streaming_unstructured_ingest_error_with_none_status_code():
         "Async gen test UnstructuredIngestError with None status_code"
         in invoke_response.status_code_text
     )
+
+
+# --- optional-body contract -------------------------------------------------------------------
+#
+# A pydantic body parameter with no default is mandatory even when every field inside the model is
+# optional. A plugin whose parameters are ALL optional therefore used to demand a body that no
+# caller has a reason to populate: before it grew those parameters the same plugin accepted no body
+# at all, so adding one silently flipped its HTTP contract and every bodyless caller got a 422.
+
+
+class _Echo(BaseModel):
+    settings: Optional[dict] = None
+    context: Optional[dict] = None
+    received: Optional[str] = None
+
+
+def _all_optional(
+    invocation_settings: Optional[dict] = None, invocation_context: Optional[dict] = None
+) -> _Echo:
+    return _Echo(settings=invocation_settings, context=invocation_context)
+
+
+def _no_params() -> _Echo:
+    return _Echo(received="ok")
+
+
+def _has_required(element_dicts: str, invocation_context: Optional[dict] = None) -> _Echo:
+    return _Echo(received=element_dicts)
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_all_optional_params_accept_absent_or_empty_body(body):
+    client = TestClient(wrap_in_fastapi(func=_all_optional, plugin_id="mock_plugin"))
+
+    kwargs = {} if body is None else {"json": body}
+    resp = client.post("/invoke", **kwargs)
+
+    assert resp.status_code == 200
+    invoke_response = InvokeResponse.model_validate(resp.json())
+    invoke_response.generic_validation()
+    # Each field resolves to its own default, which is what the signature already promised.
+    assert invoke_response.output == {"settings": None, "context": None, "received": None}
+
+
+def test_all_optional_params_still_receive_a_populated_body():
+    # The tolerance must not swallow a body that IS supplied, or the wire-settings plane silently
+    # stops working while every request keeps returning 200.
+    client = TestClient(wrap_in_fastapi(func=_all_optional, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"invocation_settings": {"k": "v"}})
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output == {
+        "settings": {"k": "v"},
+        "context": None,
+        "received": None,
+    }
+
+
+def test_required_param_still_rejects_an_absent_body():
+    # The tolerance must not leak into plugins that genuinely need input: a downloader invoked
+    # without `file_data` has to fail loudly rather than receive None.
+    client = TestClient(wrap_in_fastapi(func=_has_required, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").status_code == 422
+    assert client.post("/invoke", json={}).status_code == 422
+    assert client.post("/invoke", json={"element_dicts": "x"}).status_code == 200
+
+
+class _FileDataEcho(BaseModel):
+    identifier: Optional[str] = None
+
+
+def _optional_file_data(
+    file_data: Optional[FileData] = None, invocation_context: Optional[dict] = None
+) -> _FileDataEcho:
+    return _FileDataEcho(identifier=None if file_data is None else file_data.identifier)
+
+
+@pytest.mark.parametrize("body", [None, {}])
+def test_optional_file_data_is_preserved_as_none(body):
+    # `file_data` is converted from its dict form for the wrapped function, but it can legitimately
+    # be absent. Calling `.model_dump()` on None raised before `wrap_fn` ran, turning the
+    # optional-body contract into a 500 rather than a normal response.
+    client = TestClient(wrap_in_fastapi(func=_optional_file_data, plugin_id="mock_plugin"))
+
+    kwargs = {} if body is None else {"json": body}
+    resp = client.post("/invoke", **kwargs)
+
+    assert resp.status_code == 200
+    invoke_response = InvokeResponse.model_validate(resp.json())
+    invoke_response.generic_validation()
+    assert invoke_response.output == {"identifier": None}
+
+
+def test_optional_file_data_is_still_converted_when_supplied():
+    client = TestClient(wrap_in_fastapi(func=_optional_file_data, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke", json={"file_data": mock_file_data[0].model_dump()})
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output == {"identifier": "mock file data"}
+
+
+def test_no_param_plugin_still_accepts_a_bodyless_post():
+    client = TestClient(wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+
+    assert resp.status_code == 200
+    assert InvokeResponse.model_validate(resp.json()).output["received"] == "ok"
+
+
+class _PrecheckFailure(Exception):
+    status_code = 403
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
+def _failing_precheck() -> None:
+    raise _PrecheckFailure("credential rejected")
+
+
+def _passing_precheck() -> None:
+    return None
+
+
+def test_precheck_reports_failure_category_from_raised_error():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_failing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    # A plain exception is not the customer's to fix.
+    assert body["plugin_error"] is None
+    assert "credential rejected" in body["status_code_text"]
+
+
+def test_precheck_declares_user_audience_like_invoke_does():
+    from unstructured_ingest.error import UserError
+
+    def user_fault_precheck() -> None:
+        raise UserError("bad credentials")
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=user_fault_precheck)
+    )
+
+    body = client.get("/precheck").json()
+
+    assert body["plugin_error"]["audience"] == "user"
+
+
+def test_precheck_success_has_no_failure_category():
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_passing_precheck)
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 200
+    assert body["failure_category"] is None
+
+
+def test_precheck_ignores_non_string_failure_category():
+    class _NonStringCategoryFailure(Exception):
+        status_code = 403
+        failure_category = 403
+
+    def _enum_category_precheck() -> None:
+        raise _NonStringCategoryFailure("credential rejected")
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_enum_category_precheck
+        )
+    )
+
+    resp = client.get("/precheck")
+
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] is None
+    assert "credential rejected" in body["status_code_text"]
+
+
+def test_invoke_reports_failure_category_from_raised_error():
+    client = TestClient(wrap_in_fastapi(func=_failing_precheck, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 403
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+
+
+def test_invoke_sanitizes_raising_error_attributes():
+    class _HostileError(Exception):
+        @property
+        def status_code(self) -> int:
+            raise RuntimeError("status_code exploded")
+
+        @property
+        def failure_category(self) -> str:
+            raise RuntimeError("failure_category exploded")
+
+    def _raising_func() -> None:
+        raise _HostileError("original message")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 500
+    assert body["failure_category"] is None
+    assert "original message" in body["status_code_text"]
+
+
+class _UnrenderableError(Exception):
+    status_code = 403
+
+    def __str__(self) -> str:
+        raise RuntimeError("__str__ exploded")
+
+
+def test_invoke_survives_error_whose_str_raises():
+    def _raising_func() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
+def test_invoke_survives_error_with_hostile_class_access():
+    class _HostileClassError(Exception):
+        status_code = 403
+
+        def __getattribute__(self, name: str):
+            if name == "__class__":
+                raise RuntimeError("__class__ exploded")
+            return super().__getattribute__(name)
+
+    def _raising_func() -> None:
+        raise _HostileClassError("original message")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    # The handler logs the error with exc_info; formatting this exception's
+    # traceback outside the handler would raise, so keep the record out of
+    # the captured-log machinery.
+    with patch.object(logging.getLogger("uvicorn.error"), "error"):
+        resp = client.post("/invoke")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "_HostileClassError" in body["status_code_text"]
+    assert "original message" in body["status_code_text"]
+
+
+def test_precheck_survives_error_whose_str_raises():
+    def _unrenderable_precheck() -> None:
+        raise _UnrenderableError()
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_unrenderable_precheck
+        )
+    )
+
+    resp = client.get("/precheck")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status_code"] == 403
+    assert "<unrenderable error>" in body["status_code_text"]
+
+
+def test_invoke_ignores_non_integer_status_code():
+    class _BadStatusError(Exception):
+        status_code = "not-a-code"
+
+    def _raising_func() -> None:
+        raise _BadStatusError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 500
+
+
+def test_invoke_serializes_non_string_http_exception_detail():
+    from fastapi import HTTPException
+
+    def _raising_func() -> None:
+        raise HTTPException(status_code=422, detail=["field a", "field b"])
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+    assert body["status_code"] == 422
+    assert body["status_code_text"] == '["field a", "field b"]'
+
+
+def test_precheck_func_may_take_a_usage_list_parameter():
+    def _usage_precheck(usage: list) -> None:
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_usage_precheck)
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200
+
+
+def test_precheck_func_with_non_list_usage_parameter_is_rejected():
+    from unstructured_platform_plugins.etl_uvicorn.api_generator import EtlApiException
+
+    def _bad_precheck(usage: int) -> None:
+        return None
+
+    with pytest.raises(EtlApiException):
+        wrap_in_fastapi(func=_no_params, plugin_id="mock_plugin", precheck_func=_bad_precheck)
+
+
+def test_invoke_clamps_out_of_range_status_code():
+    class _ZeroStatusError(Exception):
+        status_code = 0
+
+    def _raising_func() -> None:
+        raise _ZeroStatusError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["status_code"] == 500
+
+
+def test_invoke_survives_ingest_error_with_raising_status_code():
+    from unstructured_ingest.error import UnstructuredIngestError
+
+    class _HostileIngestError(UnstructuredIngestError):
+        @property
+        def status_code(self) -> int:
+            raise RuntimeError("status_code exploded")
+
+    def _raising_func() -> None:
+        raise _HostileIngestError("boom")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    resp = client.post("/invoke")
+    assert resp.status_code == 200
+    assert resp.json()["status_code"] == 500
+
+
+def test_precheck_func_accepts_string_annotations():
+    def _string_annotated_precheck(usage: "list") -> "None":
+        return None
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_string_annotated_precheck
+        )
+    )
+
+    assert client.get("/precheck").json()["status_code"] == 200
+
+
+def test_invoke_survives_a_failure_category_whose_lower_raises():
+    """`isinstance(category, str)` admits a str SUBCLASS, so its `lower` is plugin code.
+
+    The whole point of this path is rendering an error response; raising inside it would
+    turn a classified 4xx into a bare 500, which is the failure the sanitizing above exists
+    to prevent.
+    """
+
+    class _HostileCategory(str):
+        def lower(self) -> str:
+            raise RuntimeError("lower exploded")
+
+    class _HostileCategoryError(IngestUserError):
+        failure_category = _HostileCategory("AUTH_PERMISSION_DENIED")
+
+    def _raising_func() -> None:
+        raise _HostileCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_raising_func, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["status_code"] != 500
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+class _CategorizedUserError(IngestUserError):
+    """A user error that also carries a preflight failure_category, as partitioner's do."""
+
+    failure_category = "AUTH_PERMISSION_DENIED"
+
+
+def test_rate_limit_error_reaches_the_wire_as_retryable():
+    """A provider 429 is transient: terminalizing it fails a record that backing off recovers.
+
+    Mirrors the utic_plugin_base RateLimitError declaration (platform-libs #889), which
+    carries error_type="dependency", error_reason="rate_limited" and retryable=True.
+    """
+
+    def _rate_limited() -> None:
+        raise IngestRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["status_code"] == 429
+    plugin_error = body["plugin_error"]
+    assert plugin_error["audience"] == "user"
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_non_rate_limited_user_errors_stay_terminal():
+    """Terminal is the safe default: only the transient condition declares itself."""
+
+    def _bad_credentials() -> None:
+        raise IngestUserAuthError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_bad_credentials, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is False
+    assert plugin_error["error_type"] == "configuration"
+    assert plugin_error["error_reason"] == "invalid_input"
+
+
+def test_rate_limit_failure_category_overrides_the_default_reason():
+    """`rate_limited` is the class DEFAULT reason, not a fixed one.
+
+    A plugin that declares a `failure_category` on a rate limit has said something more
+    specific than the class did, so the category wins the reason -- the same precedence every
+    other member of the family gets. The retryability and typing still come from the class.
+    """
+
+    class _CategorizedRateLimitError(IngestRateLimitError):
+        failure_category = "PROVIDER_RATE_LIMITED"
+
+    def _rate_limited() -> None:
+        raise _CategorizedRateLimitError("provider throttled the request")
+
+    client = TestClient(wrap_in_fastapi(func=_rate_limited, plugin_id="mock_plugin"))
+
+    plugin_error = client.post("/invoke").json()["plugin_error"]
+
+    assert plugin_error["error_reason"] == "provider_rate_limited"
+    assert plugin_error["error_type"] == "dependency"
+    assert plugin_error["retryable"] is True
+
+
+def test_precheck_rate_limit_error_is_retryable():
+    """The precheck envelope carries the same retryability as invoke."""
+
+    def _rate_limited_precheck() -> None:
+        raise IngestRateLimitError("provider throttled the precheck")
+
+    client = TestClient(
+        wrap_in_fastapi(
+            func=_no_params, plugin_id="mock_plugin", precheck_func=_rate_limited_precheck
+        )
+    )
+
+    plugin_error = client.get("/precheck").json()["plugin_error"]
+
+    assert plugin_error["retryable"] is True
+    assert plugin_error["error_reason"] == "rate_limited"
+
+
+def test_error_reason_is_lower_snake_case_on_the_wire():
+    """`error.reason` is lower_snake_case. `failure_category` is a separate
+    SCREAMING_SNAKE vocabulary and keeps its own top-level field."""
+
+    def _categorized() -> None:
+        raise _CategorizedUserError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_categorized, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "AUTH_PERMISSION_DENIED"
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_error_reason_normalizes_a_non_snake_failure_category():
+    """failure_category is arbitrary plugin-supplied text, so lowercasing alone does not
+    produce a lower_snake_case token."""
+
+    class _SpacedCategoryError(IngestUserError):
+        failure_category = "Auth Permission-Denied "
+
+    def _spaced() -> None:
+        raise _SpacedCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_spaced, plugin_id="mock_plugin"))
+
+    body = client.post("/invoke").json()
+
+    assert body["failure_category"] == "Auth Permission-Denied "
+    assert body["plugin_error"]["error_reason"] == "auth_permission_denied"
+
+
+def test_unusable_failure_category_falls_back_to_the_default_reason():
+    class _PunctuationCategoryError(IngestUserError):
+        failure_category = "///"
+
+    def _punctuation() -> None:
+        raise _PunctuationCategoryError("credential rejected")
+
+    client = TestClient(wrap_in_fastapi(func=_punctuation, plugin_id="mock_plugin"))
+
+    assert client.post("/invoke").json()["plugin_error"]["error_reason"] == "invalid_input"

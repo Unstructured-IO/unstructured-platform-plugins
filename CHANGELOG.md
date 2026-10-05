@@ -1,6 +1,109 @@
-## 0.0.45
+## 0.1.2
 
 * **Add `/check` as the plugin connection-check route**: generated plugin apps now expose `/check` alongside `/precheck` for the v3 plugin contract.
+
+## 0.1.1
+
+* **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared
+  `retryable = false` for the whole legacy `UserError` family, `RateLimitError` included, so a 429
+  a consumer reads off the declared field fails the record on the first throttle instead of backing
+  off, and charges it to the customer. `RateLimitError` now serializes
+  `error_type = "dependency"`, `audience = "user"`, `retryable = true` and an `error_reason` that
+  defaults to `rate_limited`, mirroring the `utic_plugin_base` class of the same name. An explicit
+  `failure_category` still overrides that default reason, as it does for the rest of the family.
+  Every other member of
+  the family stays terminal: terminal is the safe default, so a transient condition declares itself.
+  The `plugins_controller` reads retryability off the HTTP status band today, so its behaviour is
+  unchanged either way.
+* **`plugin_error.error_reason` is lower_snake_case again.** It was assigned straight from
+  `failure_category`, which is a separate SCREAMING_SNAKE vocabulary (`AUTH_PERMISSION_DENIED`), so
+  a plugin that set one put the wrong spelling on a field specified lower_snake_case. The category
+  is now normalized for this field only and still rides the top-level `failure_category` verbatim.
+  Compatibility: the verbatim spelling reached the wire only in 0.1.0, so a consumer written
+  against that release reads `error_reason` change spelling across this patch bump. Nothing is
+  lost, since the top-level `failure_category` is unchanged, but read that field rather than
+  parsing `error_reason` if you need the category verbatim.
+
+## 0.1.0
+
+* **This package now owns the `/invoke` transport for the reserved fields.**
+  `unstructured_platform_plugins.invocation_settings` holds the `/invoke` binding dependency and
+  body cap, the `/metadata` capability route, the request-scoped accessors, and `http_status_for`
+  — the HTTP spelling of the
+  library's normative `blame` → status rule. It sits on `utic-invocation-settings >=0.5.0`, which
+  owns the *settings contract* — including the v2 document as the only accepted sealed
+  `/invoke` shape, independent sealed-field resolution, and what an absent field is allowed to
+  mean. That split is deliberate: the
+  absence rule is a security decision and belongs next to the crypto it governs, while request
+  handling and route registration belong here, where a web framework is already a dependency.
+  Nothing about the sealed-settings wire format is decided in this repository.
+* **The wrapper consumes the ratified `invocation_context` contract locally.**
+  The field model, reserved key, supported versions, and dimension allow-list are generated from
+  `https://schemas.u10d.dev/invocation-context/v1.json`. The handwritten
+  `unstructured_platform_plugins.invocation_context` adapter retains transport error mapping and
+  the equal-length batch invariant that JSON Schema cannot express. The ratified
+  `https://schemas.u10d.dev/errors/audience/v1.json` vocabulary also replaces the redundant
+  top-level `blame` response field: a legacy `UserError` now carries a complete `plugin_error`
+  metadata object with `audience=user`.
+* **Every wrapped app installs it at construction.** The reserved `invocation_settings` /
+  `invocation_context` fields are handled outside the generated handler schema, the opaque
+  settings payload is delegated to `utic-invocation-settings`, and only the final resolved mapping
+  is exposed through `current_invocation_settings()` / `current_invocation_context()`.
+  An absent field preserves the existing fallback behaviour; under
+  `FF_INVOCATION_SETTINGS` missing or plaintext settings fail closed.
+  Repeated installation is safe: the dependency installs once and the last `/metadata`
+  registration wins.
+* **Extraction is a route dependency.** `bind_invocation_envelope` reads the body the framework
+  buffered and parsed (`request.json()` is Starlette-cached), so the `/invoke` body is held and
+  decoded exactly once per request. `install_invocation_envelope` contributes that path-aware
+  dependency through the router's public dependency list before `/invoke` is registered; no
+  private FastAPI dependency graph is mutated. It also registers the failure response shape and
+  can optionally install `InvokeBodyLimitMiddleware`, a streaming byte counter that answers 413
+  over a host-selected cap without buffering. The cap is disabled by default so a wrapper upgrade
+  cannot impose an unvalidated fleet-wide request limit. Async-generator plugins explicitly
+  re-enter the captured request binding inside response iteration, so streaming stays correct
+  independently of FastAPI's yield-dependency cleanup timing.
+* **Sealed settings consumption remains opt-in.** Pass
+  `invoke_with_sealed_dag_node_settings_v2=True` to `wrap_in_fastapi` / `generate_fast_api` (or
+  `--sealed-dag-node-settings-v2` on the CLI) only for a plugin that consumes per-invoke settings;
+  it advertises that the application accepts and acts on the versioned v2 document.
+  Transport support alone continues to advertise only `invocation_settings` and
+  `invocation_context`. A
+  plugin that serves a custom `/metadata` payload must register it via `add_metadata_route` (which
+  replaces the wrapper's route) — a plain `@app.get("/metadata")` added after construction is
+  shadowed by the wrapper's earlier registration.
+* **Resolution runs off the event loop.** Resolution may perform blocking cryptography for
+  independently sealed fields and this dependency fronts every invoke on the pod, so it is
+  dispatched with `asyncio.to_thread` rather than blocking the loop.
+* **Failures map through the library's blame taxonomy**, not a flat 500: only a caller-fixable
+  fault answers 422. Sealing drift, an envelope addressed to another recipient and a broken local
+  mount are all 5xx, which keeps the controller's blame classification off the customer. Responses
+  carry the error's class name and never its message, which can embed request-controlled values.
+* **Python floor is now 3.11** (required by `utic-invocation-settings`).
+
+## 0.0.46
+
+* **Carry preflight failure categories through standard `/precheck` responses.**
+  `InvokeResponse` and `InvokePrecheckResponse` now expose an optional `failure_category`
+  copied from a raised error, allowing plugins to preserve the centralized preflight
+  taxonomy through the normal `precheck_func` route wiring. Successful responses leave
+  the field unset.
+
+## 0.0.45
+
+* **`/invoke` no longer demands a body from a plugin whose parameters are all optional.** A pydantic
+  body parameter with no default is mandatory even when every field inside the model is optional, so
+  such a plugin required a body that no caller has a reason to populate — and before it grew those
+  parameters the same plugin accepted no body at all, which made adding one look
+  backward-compatible while silently flipping the HTTP contract to 422 for every bodyless caller.
+  An absent body now resolves each field to its own default, which is what the signature already
+  promised. Plugins with at least one required field are unchanged: a missing `file_data` still
+  fails validation rather than arriving as `None`.
+* **An optional `file_data` no longer 500s when absent.** The wrapper converted `file_data` from its
+  dict form unconditionally, so a plugin declaring it optional hit
+  `AttributeError: 'NoneType' object has no attribute 'model_dump'` on any body that omitted it —
+  previously reachable via `POST {}`, and via a bodyless request once the change above landed. `None`
+  is now passed through untouched and only a real value is converted.
 
 ## 0.0.44
 
