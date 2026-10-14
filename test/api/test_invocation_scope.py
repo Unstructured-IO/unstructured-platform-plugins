@@ -16,7 +16,7 @@ from unstructured_platform_plugins.invocation_settings import invocation_envelop
 
 
 @pytest.mark.parametrize("bound", [False, True])
-def test_identity_field_fallback(monkeypatch, bound):
+def test_identity_context_is_authoritative(monkeypatch, bound):
     for field in fields(InvocationIdentity):
         monkeypatch.setenv(field.name.upper(), f"env-{field.name}")
     context = InvocationContext(job_id="request", tenant_id="") if bound else None
@@ -24,7 +24,9 @@ def test_identity_field_fallback(monkeypatch, bound):
         identity = current_invocation_identity()
     assert identity.job_id == ("request" if bound else "env-job_id")
     assert identity.tenant_id == ("" if bound else "env-tenant_id")
-    assert identity.org_id == "env-org_id"
+    for field in fields(InvocationIdentity):
+        if field.name not in {"job_id", "tenant_id"}:
+            assert getattr(identity, field.name) == (None if bound else f"env-{field.name}")
     with pytest.raises(FrozenInstanceError):
         identity.job_id = "other"
 

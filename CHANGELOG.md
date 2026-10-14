@@ -1,8 +1,8 @@
 ## 0.1.1
 
 * **Plugins can read job identity and scratch paths per request.** `current_invocation_identity()`
-  returns an `InvocationIdentity` from the bound invocation context, falling back to the
-  environment for each absent field. `invocation_scratch_dir(root)` returns
+  returns an `InvocationIdentity` exclusively from the bound invocation context; absent fields
+  are `None`. It falls back to the environment only when no context is bound. `invocation_scratch_dir(root)` returns
   `root/<job>/<node>/<invocation>` while a context is bound and `root` unchanged otherwise.
 
 * **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared

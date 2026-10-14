@@ -25,12 +25,15 @@ class InvocationIdentity:
 
 
 def current_invocation_identity() -> InvocationIdentity:
-    """Read bound identity, falling back to the environment for each absent field."""
+    """Read identity from the bound context, or the environment when no context is bound."""
     context = current_invocation_context()
     values = {}
     for field in fields(InvocationIdentity):
-        value = getattr(context, field.name, None)
-        values[field.name] = os.getenv(field.name.upper()) if value is None else value
+        values[field.name] = (
+            getattr(context, field.name, None)
+            if context is not None
+            else os.getenv(field.name.upper())
+        )
     return InvocationIdentity(**values)
 
 
