@@ -1,5 +1,8 @@
 ## 0.1.1
 
+* Add `InvocationIdentity`, `current_invocation_identity()` and `invocation_scratch_dir()` for
+  request-scoped identity and scratch paths, with environment and root-path fallback in boot mode.
+
 * **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared
   `retryable = false` for the whole legacy `UserError` family, `RateLimitError` included, so a 429
   a consumer reads off the declared field fails the record on the first throttle instead of backing
