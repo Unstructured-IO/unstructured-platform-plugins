@@ -1,7 +1,9 @@
 ## 0.1.1
 
-* Add `InvocationIdentity`, `current_invocation_identity()` and `invocation_scratch_dir()` for
-  request-scoped identity and scratch paths, with environment and root-path fallback in boot mode.
+* **Plugins can read job identity and scratch paths per request.** `current_invocation_identity()`
+  returns an `InvocationIdentity` from the bound invocation context, falling back to the
+  environment for each absent field. `invocation_scratch_dir(root)` returns
+  `root/<job>/<node>/<invocation>` while a context is bound and `root` unchanged otherwise.
 
 * **A provider rate limit no longer reaches the wire as terminal.** `plugin_error_of` declared
   `retryable = false` for the whole legacy `UserError` family, `RateLimitError` included, so a 429
