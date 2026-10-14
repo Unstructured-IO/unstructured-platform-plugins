@@ -51,7 +51,7 @@ def invocation_scratch_dir(root: str | os.PathLike[str], *, create: bool = True)
     if context is not None:
         identity = current_invocation_identity()
         invocation_id = context.invocation_id
-        if invocation_id is None and context.record_ids is None and context.invocation_ids is None:
+        if not invocation_id and context.record_ids is None and context.invocation_ids is None:
             invocation_id = context.record_id
         path = path / _segment(identity.job_id) / _segment(identity.dag_node_id)
         path = path / _segment(invocation_id or uuid4().hex)

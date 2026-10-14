@@ -74,6 +74,8 @@ def test_single_record_and_batch_correlation(tmp_path):
         assert invocation_scratch_dir(tmp_path, create=False) == tmp_path / "job/node/invoke"
     with invocation_envelope(None, InvocationContext(record_id="record")):
         assert invocation_scratch_dir(tmp_path, create=False).name == "record"
+    with invocation_envelope(None, InvocationContext(invocation_id="", record_id="record")):
+        assert invocation_scratch_dir(tmp_path, create=False).name == "record"
     with invocation_envelope(None, InvocationContext(record_id="record", record_ids=["record"])):
         first = invocation_scratch_dir(tmp_path, create=False)
         second = invocation_scratch_dir(tmp_path, create=False)
