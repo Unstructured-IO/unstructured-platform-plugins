@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from unstructured_platform_plugins import (
+from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
+from unstructured_platform_plugins.invocation_context import InvocationContext
+from unstructured_platform_plugins.invocation_scope import (
     InvocationIdentity,
     current_invocation_identity,
     invocation_scratch_dir,
 )
-from unstructured_platform_plugins.etl_uvicorn.api_generator import generate_fast_api
-from unstructured_platform_plugins.invocation_context import InvocationContext
 from unstructured_platform_plugins.invocation_settings import invocation_envelope
 
 
