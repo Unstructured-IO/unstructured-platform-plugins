@@ -60,10 +60,15 @@ def test_segments_are_safe_and_bounded(tmp_path, segment):
 
 def test_sanitization_does_not_alias(tmp_path):
     paths = []
-    for job_id in ["a/b", "a_b"]:
+    for job_id in [None, "unknown", "~missing", "a/b", "a_b"]:
         with invocation_envelope(None, InvocationContext(job_id=job_id, invocation_id="invoke")):
             paths.append(invocation_scratch_dir(tmp_path, create=False))
-    assert paths[0] != paths[1]
+    encoded_job_id = paths[3].relative_to(tmp_path).parts[0]
+    with invocation_envelope(
+        None, InvocationContext(job_id=encoded_job_id, invocation_id="invoke")
+    ):
+        paths.append(invocation_scratch_dir(tmp_path, create=False))
+    assert len(set(paths)) == len(paths)
 
 
 def test_single_record_and_batch_correlation(tmp_path):

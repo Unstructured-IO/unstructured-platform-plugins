@@ -39,12 +39,12 @@ def current_invocation_identity() -> InvocationIdentity:
 
 def _segment(value: str | None) -> str:
     if not value:
-        return "unknown"
+        return "~missing"
     safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", value)
-    if safe in {".", ".."} or safe != value or len(safe) > 96:
-        digest = hashlib.sha256(value.encode()).hexdigest()[:16]
-        safe = f"{safe[:79].strip('.') or 'unknown'}-{digest}"
-    return safe
+    if safe == value and safe not in {".", ".."} and len(safe) <= 96:
+        return safe
+    digest = hashlib.sha256(value.encode()).hexdigest()
+    return f"~{safe[:30].strip('.') or 'unknown'}-{digest}"
 
 
 def invocation_scratch_dir(root: str | os.PathLike[str], *, create: bool = True) -> Path:
