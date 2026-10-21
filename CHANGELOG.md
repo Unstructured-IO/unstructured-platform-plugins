@@ -1,6 +1,10 @@
-## 0.1.2
+## 0.1.3
 
 * **Add `/check` as the plugin connection-check route**: generated plugin apps now expose `/check` alongside `/precheck` for the v3 plugin contract.
+
+## 0.1.2
+
+* **Bump locked `certifi` to 2026.10.19.** The release removes the emSign ECC Root CA - G3 root after eight eMudhra intermediate CA private keys were compromised. `requests` and `httpx` trust certifi's bundle and do not check revocation, so with the older bundle they accepted certificates chaining to that root. Only the lockfile changes; the `certifi` requirement for installs is unchanged, so upgrade `certifi` in your own environment.
 
 ## 0.1.1
 
